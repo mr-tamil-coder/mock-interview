@@ -1,5 +1,5 @@
-import { useSpeechSynthesis, useSpeechRecognition } from 'react-speech-kit';
-
+// CORRECT
+import { useSpeechRecognition } from "react-speech-recognition";
 class VoiceService {
   constructor() {
     this.mediaRecorder = null;
@@ -12,18 +12,18 @@ class VoiceService {
   async initialize() {
     try {
       // Request microphone permission
-      this.stream = await navigator.mediaDevices.getUserMedia({ 
+      this.stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          sampleRate: 44100
-        } 
+          sampleRate: 44100,
+        },
       });
-      
-      console.log('✅ Voice service initialized');
+
+      console.log("✅ Voice service initialized");
       return true;
     } catch (error) {
-      console.error('❌ Failed to initialize voice service:', error);
+      console.error("❌ Failed to initialize voice service:", error);
       return false;
     }
   }
@@ -38,7 +38,7 @@ class VoiceService {
     try {
       this.audioChunks = [];
       this.mediaRecorder = new MediaRecorder(this.stream, {
-        mimeType: 'audio/webm;codecs=opus'
+        mimeType: "audio/webm;codecs=opus",
       });
 
       this.mediaRecorder.ondataavailable = (event) => {
@@ -49,11 +49,11 @@ class VoiceService {
 
       this.mediaRecorder.start(100); // Collect data every 100ms
       this.isRecording = true;
-      
-      console.log('🎤 Recording started');
+
+      console.log("🎤 Recording started");
       return true;
     } catch (error) {
-      console.error('❌ Failed to start recording:', error);
+      console.error("❌ Failed to start recording:", error);
       return false;
     }
   }
@@ -62,24 +62,24 @@ class VoiceService {
   async stopRecording() {
     return new Promise((resolve, reject) => {
       if (!this.mediaRecorder || !this.isRecording) {
-        reject(new Error('Not currently recording'));
+        reject(new Error("Not currently recording"));
         return;
       }
 
       this.mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(this.audioChunks, { 
-          type: 'audio/webm;codecs=opus' 
+        const audioBlob = new Blob(this.audioChunks, {
+          type: "audio/webm;codecs=opus",
         });
-        
+
         this.isRecording = false;
         this.audioChunks = [];
-        
-        console.log('🎤 Recording stopped, blob size:', audioBlob.size);
+
+        console.log("🎤 Recording stopped, blob size:", audioBlob.size);
         resolve(audioBlob);
       };
 
       this.mediaRecorder.onerror = (error) => {
-        console.error('❌ Recording error:', error);
+        console.error("❌ Recording error:", error);
         reject(error);
       };
 
@@ -91,19 +91,19 @@ class VoiceService {
   async playAudio(audioSource) {
     try {
       let audioUrl;
-      
+
       if (audioSource instanceof Blob) {
         audioUrl = URL.createObjectURL(audioSource);
-      } else if (typeof audioSource === 'string') {
+      } else if (typeof audioSource === "string") {
         audioUrl = audioSource;
       } else if (audioSource.url) {
         audioUrl = audioSource.url;
       } else {
-        throw new Error('Invalid audio source');
+        throw new Error("Invalid audio source");
       }
 
       const audio = new Audio(audioUrl);
-      
+
       return new Promise((resolve, reject) => {
         audio.onended = () => {
           if (audioSource instanceof Blob) {
@@ -111,16 +111,16 @@ class VoiceService {
           }
           resolve();
         };
-        
+
         audio.onerror = (error) => {
-          console.error('❌ Audio playback error:', error);
+          console.error("❌ Audio playback error:", error);
           reject(error);
         };
-        
+
         audio.play().catch(reject);
       });
     } catch (error) {
-      console.error('❌ Failed to play audio:', error);
+      console.error("❌ Failed to play audio:", error);
       throw error;
     }
   }
@@ -130,7 +130,7 @@ class VoiceService {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => {
-        const base64 = reader.result.split(',')[1];
+        const base64 = reader.result.split(",")[1];
         resolve(base64);
       };
       reader.onerror = reject;
@@ -143,31 +143,33 @@ class VoiceService {
     return new Promise((resolve) => {
       const audio = new Audio();
       const url = URL.createObjectURL(audioBlob);
-      
+
       audio.onloadedmetadata = () => {
         URL.revokeObjectURL(url);
         resolve(audio.duration);
       };
-      
+
       audio.onerror = () => {
         URL.revokeObjectURL(url);
         resolve(0);
       };
-      
+
       audio.src = url;
     });
   }
 
   // Check if recording is supported
   isRecordingSupported() {
-    return !!(navigator.mediaDevices && 
-              navigator.mediaDevices.getUserMedia && 
-              window.MediaRecorder);
+    return !!(
+      navigator.mediaDevices &&
+      navigator.mediaDevices.getUserMedia &&
+      window.MediaRecorder
+    );
   }
 
   // Check if speech synthesis is supported
   isSpeechSynthesisSupported() {
-    return 'speechSynthesis' in window;
+    return "speechSynthesis" in window;
   }
 
   // Get available voices
@@ -179,21 +181,22 @@ class VoiceService {
   // Speak text using browser TTS (fallback)
   async speakText(text, options = {}) {
     if (!this.isSpeechSynthesisSupported()) {
-      throw new Error('Speech synthesis not supported');
+      throw new Error("Speech synthesis not supported");
     }
 
     return new Promise((resolve, reject) => {
       const utterance = new SpeechSynthesisUtterance(text);
-      
+
       utterance.rate = options.rate || 1;
       utterance.pitch = options.pitch || 1;
       utterance.volume = options.volume || 1;
-      
+
       if (options.voice) {
         const voices = this.getAvailableVoices();
-        const selectedVoice = voices.find(voice => 
-          voice.name.includes(options.voice) || 
-          voice.lang.includes(options.voice)
+        const selectedVoice = voices.find(
+          (voice) =>
+            voice.name.includes(options.voice) ||
+            voice.lang.includes(options.voice)
         );
         if (selectedVoice) {
           utterance.voice = selectedVoice;
@@ -202,7 +205,7 @@ class VoiceService {
 
       utterance.onend = resolve;
       utterance.onerror = reject;
-      
+
       speechSynthesis.speak(utterance);
     });
   }
@@ -219,12 +222,12 @@ class VoiceService {
     if (this.mediaRecorder && this.isRecording) {
       this.mediaRecorder.stop();
     }
-    
+
     if (this.stream) {
-      this.stream.getTracks().forEach(track => track.stop());
+      this.stream.getTracks().forEach((track) => track.stop());
       this.stream = null;
     }
-    
+
     this.stopSpeaking();
     this.audioChunks = [];
     this.isRecording = false;
@@ -235,7 +238,7 @@ class VoiceService {
     return {
       isRecording: this.isRecording,
       isSupported: this.isRecordingSupported(),
-      hasPermission: !!this.stream
+      hasPermission: !!this.stream,
     };
   }
 }
