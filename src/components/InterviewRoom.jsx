@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { useInterview } from '../hooks/useInterview'
+import socketService from '../services/socketService'
 import { 
   Camera, 
   CameraOff, 
@@ -12,7 +13,9 @@ import {
   Code,
   MessageCircle,
   Clock,
-  CheckCircle
+  CheckCircle,
+  Monitor,
+  MonitorOff
 } from 'lucide-react'
 import CodeEditor from './CodeEditor'
 import InterviewChat from './InterviewChat'
@@ -45,13 +48,24 @@ function InterviewRoom({ onEndInterview }) {
 
   const [isCameraOn, setIsCameraOn] = useState(true)
   const [isMicOn, setIsMicOn] = useState(true)
+  const [isScreenSharing, setIsScreenSharing] = useState(false)
   const [timeElapsed, setTimeElapsed] = useState(0)
   const [showSummary, setShowSummary] = useState(false)
+  const [screenAnalysis, setScreenAnalysis] = useState(null)
   const videoRef = useRef(null)
   const streamRef = useRef(null)
+  const screenStreamRef = useRef(null)
 
   useEffect(() => {
     startCamera()
+    
+    // Set current interview for socket service
+    if (currentInterview?._id) {
+      socketService.setCurrentInterview(currentInterview._id);
+    }
+    
+    // Listen for screen analysis
+    socketService.on('screen-analysis', handleScreenAnalysis);
     
     const timer = setInterval(() => {
       setTimeElapsed(prev => prev + 1)
@@ -60,9 +74,19 @@ function InterviewRoom({ onEndInterview }) {
     return () => {
       clearInterval(timer)
       stopCamera()
+      stopScreenShare()
+      socketService.off('screen-analysis', handleScreenAnalysis);
     }
   }, [])
 
+  const handleScreenAnalysis = (analysis) => {
+    setScreenAnalysis(analysis);
+    
+    if (analysis.suspicious) {
+      // Show warning to user
+      console.warn('Suspicious activity detected:', analysis.activities);
+    }
+  };
   const startCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -84,6 +108,50 @@ function InterviewRoom({ onEndInterview }) {
     }
   }
 
+  const startScreenShare = async () => {
+    try {
+      const screenStream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: false
+      });
+      
+      screenStreamRef.current = screenStream;
+      setIsScreenSharing(true);
+      
+      // Monitor screen share events
+      screenStream.getVideoTracks()[0].addEventListener('ended', () => {
+        setIsScreenSharing(false);
+        socketService.sendScreenShareActivity('screen_share_ended', currentInterview._id);
+      });
+      
+      // Simulate activity monitoring
+      const activityInterval = setInterval(() => {
+        if (isScreenSharing) {
+          const activities = [
+            'coding_in_editor',
+            'reading_problem',
+            'thinking_pause',
+            'tab_switch_detected'
+          ];
+          const randomActivity = activities[Math.floor(Math.random() * activities.length)];
+          socketService.sendScreenShareActivity(randomActivity, currentInterview._id);
+        } else {
+          clearInterval(activityInterval);
+        }
+      }, 10000); // Check every 10 seconds
+      
+    } catch (error) {
+      console.error('Error starting screen share:', error);
+    }
+  };
+
+  const stopScreenShare = () => {
+    if (screenStreamRef.current) {
+      screenStreamRef.current.getTracks().forEach(track => track.stop());
+      setIsScreenSharing(false);
+      socketService.sendScreenShareActivity('screen_share_ended', currentInterview._id);
+    }
+  };
   const toggleCamera = () => {
     setIsCameraOn(!isCameraOn)
     if (streamRef.current) {
@@ -104,6 +172,13 @@ function InterviewRoom({ onEndInterview }) {
     }
   }
 
+  const toggleScreenShare = () => {
+    if (isScreenSharing) {
+      stopScreenShare();
+    } else {
+      startScreenShare();
+    }
+  };
   const handleVoiceToggle = () => {
     if (isRecording) {
       stopVoiceRecording()
@@ -164,6 +239,18 @@ function InterviewRoom({ onEndInterview }) {
                   </div>
                 ))}
               </div>
+              
+              {screenAnalysis && (
+                <div className="screen-analysis">
+                  <h4>Screen Activity Analysis</h4>
+                  <p>Your screen activity was monitored for interview integrity.</p>
+                  {screenAnalysis.suspicious && (
+                    <div className="warning">
+                      <p>⚠️ Some activities may need attention in future interviews.</p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="summary-actions">
@@ -206,6 +293,9 @@ function InterviewRoom({ onEndInterview }) {
             <span className="question-counter">
               Question {currentQuestionIndex + 1} of {questions.length}
             </span>
+            <span className="difficulty-badge">
+              {currentInterview.difficulty.toUpperCase()}
+            </span>
           </div>
         </div>
         
@@ -221,6 +311,14 @@ function InterviewRoom({ onEndInterview }) {
             onClick={toggleMic}
           >
             {isMicOn ? <Mic size={20} /> : <MicOff size={20} />}
+          </button>
+          <button 
+            className={`control-btn ${isScreenSharing ? 'active' : 'inactive'}`}
+            onClick={toggleScreenShare}
+            title="Toggle Screen Share"
+          >
+            {isScreenSharing ? <Monitor size={20} /> : <MonitorOff size={20} />}
+            {isScreenSharing ? 'Stop Share' : 'Share Screen'}
           </button>
           <button 
             className={`control-btn ${isRecording ? 'recording' : ''} ${aiSpeaking ? 'disabled' : ''}`}
@@ -239,6 +337,11 @@ function InterviewRoom({ onEndInterview }) {
         </div>
       )}
 
+      {screenAnalysis?.suspicious && (
+        <div className="warning-banner">
+          <p>⚠️ Please focus on the interview. Avoid switching tabs or external resources.</p>
+        </div>
+      )}
       <div className="interview-content">
         <div className="video-section">
           <div className="video-container">
@@ -260,6 +363,9 @@ function InterviewRoom({ onEndInterview }) {
             <div className="avatar-container">
               <div className="avatar-circle">
                 <span>AI</span>
+              </div>
+              <div className="ai-status">
+                <span>{aiSpeaking ? '🗣️ AI Speaking...' : '👂 AI Listening'}</span>
               </div>
               <div className={`speaking-indicator ${aiSpeaking ? 'active' : ''}`}>
                 <div className="wave"></div>

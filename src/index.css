@@ -493,6 +493,15 @@
   opacity: 0.9;
 }
 
+.difficulty-badge {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: white;
+  padding: 0.25rem 0.75rem;
+  border-radius: 1rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
 .timer {
   display: flex;
   align-items: center;
@@ -515,6 +524,7 @@
   color: white;
   cursor: pointer;
   transition: all 0.3s ease;
+  font-size: 0.9rem;
 }
 
 .control-btn:hover {
@@ -535,6 +545,15 @@
   background: #ef4444;
   border-color: #ef4444;
   animation: pulse 1.5s infinite;
+}
+
+.warning-banner {
+  background: #fef3c7;
+  color: #92400e;
+  padding: 1rem;
+  text-align: center;
+  border-bottom: 1px solid #fbbf24;
+  font-weight: 600;
 }
 
 @keyframes pulse {
@@ -614,6 +633,13 @@
   font-size: 1.2rem;
 }
 
+.ai-status {
+  font-size: 0.8rem;
+  color: #6b7280;
+  text-align: center;
+  margin-bottom: 0.5rem;
+}
+
 .speaking-indicator {
   display: flex;
   gap: 2px;
@@ -655,6 +681,8 @@
   background: #f9fafb;
   padding: 1.5rem;
   border-bottom: 1px solid #e5e7eb;
+  max-height: 400px;
+  overflow-y: auto;
 }
 
 .question-header {
@@ -713,6 +741,20 @@
   font-family: 'Courier New', monospace;
   font-size: 0.9rem;
   color: #1f2937;
+  line-height: 1.4;
+}
+
+.constraints {
+  background: #fef3c7;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  margin-bottom: 1rem;
+  border: 1px solid #fbbf24;
+}
+
+.constraints ul {
+  margin: 0.5rem 0 0 1rem;
+  color: #92400e;
 }
 
 .hints ul {
@@ -722,10 +764,37 @@
 
 .hints li {
   margin-bottom: 0.25rem;
+  cursor: pointer;
+  padding: 0.5rem;
+  border-radius: 0.25rem;
+  transition: background-color 0.3s ease;
+}
+
+.hints li:hover {
+  background: rgba(59, 130, 246, 0.1);
 }
 
 .question-actions {
   margin-top: 1rem;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.screen-analysis {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #f3f4f6;
+  border-radius: 0.5rem;
+}
+
+.screen-analysis .warning {
+  background: #fef2f2;
+  color: #dc2626;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  margin-top: 0.5rem;
+  border: 1px solid #fecaca;
 }
 
 /* Code Editor Styles */

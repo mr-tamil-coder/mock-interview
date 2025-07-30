@@ -106,6 +106,11 @@ export const useInterview = () => {
       // Start AI interview
       socketService.startInterview({
         interviewId: interview._id,
+        userProfile: {
+          name: 'Candidate',
+          experience: 'Mid-level',
+          previousInterviews: 0
+        },
         ...interviewData
       });
 

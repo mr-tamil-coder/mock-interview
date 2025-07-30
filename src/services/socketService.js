@@ -134,7 +134,10 @@ class SocketService {
 
   sendVoiceInput(audioData) {
     if (this.socket && this.isConnected) {
-      this.socket.emit('voice-input', audioData);
+      this.socket.emit('voice-input', {
+        audio: audioData,
+        interviewId: this.currentInterviewId
+      });
     }
   }
 
@@ -144,10 +147,24 @@ class SocketService {
     }
   }
 
+  sendScreenShareActivity(activity, interviewId) {
+    if (this.socket && this.isConnected) {
+      this.socket.emit('screen-share-activity', {
+        activity,
+        interviewId,
+        timestamp: new Date()
+      });
+    }
+  }
   endInterview(data) {
     if (this.socket && this.isConnected) {
       this.socket.emit('end-interview', data);
     }
+  }
+
+  // Store current interview ID for voice input
+  setCurrentInterview(interviewId) {
+    this.currentInterviewId = interviewId;
   }
 
   // Utility methods
