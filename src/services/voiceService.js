@@ -1,11 +1,10 @@
-// CORRECT
-import { useSpeechRecognition } from "react-speech-recognition";
 class VoiceService {
   constructor() {
     this.mediaRecorder = null;
     this.audioChunks = [];
     this.isRecording = false;
     this.stream = null;
+    this.audioContext = null;
   }
 
   // Initialize voice services
@@ -16,10 +15,13 @@ class VoiceService {
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          sampleRate: 44100,
+          sampleRate: 44100
         },
       });
 
+      // Initialize audio context for better audio processing
+      this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      
       console.log("✅ Voice service initialized");
       return true;
     } catch (error) {
@@ -97,12 +99,13 @@ class VoiceService {
       } else if (typeof audioSource === "string") {
         audioUrl = audioSource;
       } else if (audioSource.url) {
-        audioUrl = audioSource.url;
+        audioUrl = `http://localhost:5000${audioSource.url}`;
       } else {
         throw new Error("Invalid audio source");
       }
 
       const audio = new Audio(audioUrl);
+      audio.crossOrigin = "anonymous";
 
       return new Promise((resolve, reject) => {
         audio.onended = () => {
@@ -114,10 +117,17 @@ class VoiceService {
 
         audio.onerror = (error) => {
           console.error("❌ Audio playback error:", error);
+          if (audioSource instanceof Blob) {
+            URL.revokeObjectURL(audioUrl);
+          }
           reject(error);
         };
 
-        audio.play().catch(reject);
+        // Handle autoplay restrictions
+        audio.play().catch((error) => {
+          console.warn("Autoplay prevented:", error);
+          resolve(); // Don't reject, just resolve silently
+        });
       });
     } catch (error) {
       console.error("❌ Failed to play audio:", error);
@@ -228,6 +238,11 @@ class VoiceService {
       this.stream = null;
     }
 
+    if (this.audioContext) {
+      this.audioContext.close();
+      this.audioContext = null;
+    }
+
     this.stopSpeaking();
     this.audioChunks = [];
     this.isRecording = false;
@@ -239,7 +254,15 @@ class VoiceService {
       isRecording: this.isRecording,
       isSupported: this.isRecordingSupported(),
       hasPermission: !!this.stream,
+      audioContextState: this.audioContext?.state || 'closed'
     };
+  }
+
+  // Resume audio context if suspended (for autoplay restrictions)
+  async resumeAudioContext() {
+    if (this.audioContext && this.audioContext.state === 'suspended') {
+      await this.audioContext.resume();
+    }
   }
 }
 

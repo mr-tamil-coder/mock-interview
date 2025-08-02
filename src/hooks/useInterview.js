@@ -13,6 +13,7 @@ export const useInterview = () => {
   const [aiSpeaking, setAiSpeaking] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [interviewStarted, setInterviewStarted] = useState(false);
 
   useEffect(() => {
     // Connect to socket when component mounts
@@ -37,10 +38,12 @@ export const useInterview = () => {
       if (data.question) {
         setQuestions([data.question]);
         setCurrentQuestionIndex(0);
+        setCode(data.question.starterCode?.javascript || '// Write your solution here\n\n');
       }
       if (data.audio) {
         playAiAudio(data.audio);
       }
+      setInterviewStarted(true);
     }
   }, []);
 
@@ -63,12 +66,12 @@ export const useInterview = () => {
     // Update current question with evaluation results
     setQuestions(prev => prev.map((q, index) => 
       index === currentQuestionIndex 
-        ? { ...q, evaluation, userCode: code }
+        ? { ...q, evaluation, userCode: code, completed: true }
         : q
     ));
 
     // Add evaluation feedback to chat
-    const feedback = `Code evaluation complete! Score: ${evaluation.correctness}/100. ${evaluation.feedback}`;
+    const feedback = `Code evaluation complete! Score: ${evaluation.scores?.overall || 0}/100. ${evaluation.interviewerComment || 'Good effort!'}`;
     addChatMessage('ai', feedback);
   }, [currentQuestionIndex, code]);
 
@@ -102,6 +105,7 @@ export const useInterview = () => {
 
       // Join interview room
       socketService.joinInterview(interview._id);
+      socketService.setCurrentInterview(interview._id);
 
       // Start AI interview
       socketService.startInterview({
@@ -125,7 +129,7 @@ export const useInterview = () => {
   };
 
   const submitCode = async () => {
-    if (!currentInterview || !questions[currentQuestionIndex]) return;
+    if (!currentInterview || !questions[currentQuestionIndex] || !code.trim()) return;
 
     try {
       setLoading(true);
@@ -133,6 +137,7 @@ export const useInterview = () => {
       socketService.submitCode({
         interviewId: currentInterview._id,
         questionId: questions[currentQuestionIndex].id,
+        question: questions[currentQuestionIndex],
         code,
         language: 'javascript'
       });
@@ -147,10 +152,12 @@ export const useInterview = () => {
   const nextQuestion = async () => {
     if (currentQuestionIndex < questions.length - 1) {
       setCurrentQuestionIndex(prev => prev + 1);
-      setCode('');
+      const nextQ = questions[currentQuestionIndex + 1];
+      setCode(nextQ.starterCode?.javascript || '// Write your solution here\n\n');
     } else {
       // Generate new question
       try {
+        setLoading(true);
         const response = await apiService.generateQuestion({
           difficulty: currentInterview.difficulty,
           topic: currentInterview.topic,
@@ -160,10 +167,12 @@ export const useInterview = () => {
         if (response.success) {
           setQuestions(prev => [...prev, response.question]);
           setCurrentQuestionIndex(questions.length);
-          setCode('');
+          setCode(response.question.starterCode?.javascript || '// Write your solution here\n\n');
         }
       } catch (error) {
         setError('Failed to generate next question');
+      } finally {
+        setLoading(false);
       }
     }
   };
@@ -185,7 +194,8 @@ export const useInterview = () => {
       setIsRecording(false);
 
       // Send audio to AI for processing
-      socketService.sendVoiceInput(await voiceService.blobToBase64(audioBlob));
+      const base64Audio = await voiceService.blobToBase64(audioBlob);
+      socketService.sendVoiceInput(base64Audio);
     } catch (error) {
       setError('Failed to process voice input');
       setIsRecording(false);
@@ -215,8 +225,8 @@ export const useInterview = () => {
 
       const performance = {
         questionsAttempted: questions.length,
-        questionsCompleted: questions.filter(q => q.evaluation?.correctness > 70).length,
-        averageScore: questions.reduce((acc, q) => acc + (q.evaluation?.correctness || 0), 0) / questions.length,
+        questionsCompleted: questions.filter(q => q.evaluation?.scores?.overall > 70).length,
+        averageScore: questions.reduce((acc, q) => acc + (q.evaluation?.scores?.overall || 0), 0) / Math.max(questions.length, 1),
         totalTimeSpent: Date.now() - new Date(currentInterview.createdAt).getTime()
       };
 
@@ -232,9 +242,9 @@ export const useInterview = () => {
         scores: {
           overall: performance.averageScore,
           problemSolving: performance.averageScore,
-          codeQuality: 85, // Mock data
-          communication: 80, // Mock data
-          timeManagement: 75 // Mock data
+          codeQuality: 85,
+          communication: 80,
+          timeManagement: 75
         },
         feedback: {
           strengths: ['Good problem-solving approach', 'Clear communication'],
@@ -253,7 +263,7 @@ export const useInterview = () => {
 
   const addChatMessage = (sender, message) => {
     setChatMessages(prev => [...prev, {
-      id: Date.now(),
+      id: Date.now() + Math.random(),
       sender,
       message,
       timestamp: new Date()
@@ -263,7 +273,9 @@ export const useInterview = () => {
   const playAiAudio = async (audioData) => {
     try {
       setAiSpeaking(true);
-      await voiceService.playAudio(audioData);
+      if (audioData && audioData.url) {
+        await voiceService.playAudio(`http://localhost:5000${audioData.url}`);
+      }
     } catch (error) {
       console.error('Failed to play AI audio:', error);
     } finally {
@@ -284,6 +296,7 @@ export const useInterview = () => {
     aiSpeaking,
     loading,
     error,
+    interviewStarted,
 
     // Actions
     startInterview,
@@ -295,8 +308,9 @@ export const useInterview = () => {
     endInterview,
 
     // Utilities
-    hasNextQuestion: currentQuestionIndex < questions.length - 1,
-    canSubmitCode: code.trim().length > 0,
-    isInterviewActive: currentInterview?.status === 'in-progress'
+    hasNextQuestion: currentQuestionIndex < questions.length - 1 || questions[currentQuestionIndex]?.completed,
+    canSubmitCode: code.trim().length > 0 && !loading,
+    isInterviewActive: currentInterview?.status !== 'completed' && interviewStarted,
+    clearError: () => setError(null)
   };
 };

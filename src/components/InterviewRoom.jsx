@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../hooks/useAuth'
-import { useVoiceAI } from '../hooks/useVoiceAI'
+import { useInterview } from '../hooks/useInterview'
 import { 
   Camera, 
   CameraOff, 
@@ -10,24 +10,40 @@ import {
   CheckCircle,
   Monitor,
   MonitorOff,
-  AlertTriangle
+  AlertTriangle,
+  Play,
+  RotateCcw,
+  Send,
+  MessageCircle
 } from 'lucide-react'
-import CodeEditor from './CodeEditor'
-import VoiceAIInterface from './VoiceAIInterface'
-import apiService from '../services/api'
 
 function InterviewRoom({ onEndInterview }) {
   const { user } = useAuth()
-  
-  // Interview state
-  const [currentInterview, setCurrentInterview] = useState(null)
-  const [currentQuestion, setCurrentQuestion] = useState(null)
-  const [questions, setQuestions] = useState([])
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
-  const [code, setCode] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
-  const [showSummary, setShowSummary] = useState(false)
+  const {
+    currentInterview,
+    currentQuestion,
+    questions,
+    currentQuestionIndex,
+    code,
+    setCode,
+    isRecording,
+    chatMessages,
+    aiSpeaking,
+    loading,
+    error,
+    interviewStarted,
+    startInterview,
+    submitCode,
+    nextQuestion,
+    startVoiceRecording,
+    stopVoiceRecording,
+    sendChatMessage,
+    endInterview,
+    hasNextQuestion,
+    canSubmitCode,
+    isInterviewActive,
+    clearError
+  } = useInterview()
 
   // Camera and screen sharing
   const [isCameraOn, setIsCameraOn] = useState(true)
@@ -36,24 +52,18 @@ function InterviewRoom({ onEndInterview }) {
   const [timeElapsed, setTimeElapsed] = useState(0)
   const [screenAnalysis, setScreenAnalysis] = useState(null)
   const [suspiciousActivity, setSuspiciousActivity] = useState([])
+  const [newMessage, setNewMessage] = useState('')
+  const [output, setOutput] = useState('')
+  const [testResults, setTestResults] = useState([])
   
   const videoRef = useRef(null)
   const streamRef = useRef(null)
   const screenStreamRef = useRef(null)
 
-  // Voice AI integration
-  const interviewContext = {
-    phase: currentInterview?.status === 'completed' ? 'wrap_up' : 
-           currentQuestion ? 'problem_solving' : 'introduction',
-    currentQuestion,
-    difficulty: currentInterview?.difficulty,
-    topic: currentInterview?.topic,
-    questionsCompleted: questions.filter(q => q.completed).length,
-    totalQuestions: questions.length
-  }
-
   useEffect(() => {
-    initializeInterview()
+    if (!interviewStarted) {
+      initializeInterview()
+    }
     startCamera()
     startScreenMonitoring()
 
@@ -70,56 +80,27 @@ function InterviewRoom({ onEndInterview }) {
   }, [])
 
   const initializeInterview = async () => {
-    try {
-      setLoading(true)
-      
-      // Create new interview
-      const interviewData = {
-        type: 'dsa',
-        difficulty: 'medium',
-        topic: 'arrays'
-      }
-      
-      const response = await apiService.createInterview(interviewData)
-      setCurrentInterview(response.interview)
-      
-      // Generate first question
-      const questionResponse = await apiService.generateQuestion({
-        difficulty: 'medium',
-        topic: 'arrays',
-        previousQuestions: []
-      })
-      
-      if (questionResponse.success) {
-        setCurrentQuestion(questionResponse.question)
-        setQuestions([questionResponse.question])
-        setCode(questionResponse.question.starterCode?.javascript || '// Write your solution here\n\n')
-      }
-    } catch (error) {
-      setError('Failed to initialize interview')
-      console.error('Interview initialization error:', error)
-    } finally {
-      setLoading(false)
+    const result = await startInterview({
+      type: 'dsa',
+      difficulty: 'medium',
+      topic: 'arrays'
+    })
+    
+    if (!result.success) {
+      console.error('Failed to start interview:', result.error)
     }
   }
 
   const startScreenMonitoring = () => {
-    // Monitor tab visibility changes
     document.addEventListener('visibilitychange', handleVisibilityChange)
-    
-    // Monitor copy/paste events
     document.addEventListener('copy', handleCopyEvent)
     document.addEventListener('paste', handlePasteEvent)
-    
-    // Monitor right-click context menu
-    document.addEventListener('contextmenu', handleContextMenu)
   }
 
   const stopScreenMonitoring = () => {
     document.removeEventListener('visibilitychange', handleVisibilityChange)
     document.removeEventListener('copy', handleCopyEvent)
     document.removeEventListener('paste', handlePasteEvent)
-    document.removeEventListener('contextmenu', handleContextMenu)
   }
 
   const handleVisibilityChange = () => {
@@ -161,10 +142,6 @@ function InterviewRoom({ onEndInterview }) {
     })
   }
 
-  const handleContextMenu = (e) => {
-    // Optionally prevent right-click in interview mode
-    // e.preventDefault()
-  }
   const startCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -191,27 +168,27 @@ function InterviewRoom({ onEndInterview }) {
       const screenStream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
         audio: false
-      });
+      })
       
-      screenStreamRef.current = screenStream;
-      setIsScreenSharing(true);
+      screenStreamRef.current = screenStream
+      setIsScreenSharing(true)
       
-      // Monitor screen share events
       screenStream.getVideoTracks()[0].addEventListener('ended', () => {
-        setIsScreenSharing(false);
-      });
+        setIsScreenSharing(false)
+      })
       
     } catch (error) {
-      console.error('Error starting screen share:', error);
+      console.error('Error starting screen share:', error)
     }
-  };
+  }
 
   const stopScreenShare = () => {
     if (screenStreamRef.current) {
-      screenStreamRef.current.getTracks().forEach(track => track.stop());
-      setIsScreenSharing(false);
+      screenStreamRef.current.getTracks().forEach(track => track.stop())
+      setIsScreenSharing(false)
     }
-  };
+  }
+
   const toggleCamera = () => {
     setIsCameraOn(!isCameraOn)
     if (streamRef.current) {
@@ -234,114 +211,53 @@ function InterviewRoom({ onEndInterview }) {
 
   const toggleScreenShare = () => {
     if (isScreenSharing) {
-      stopScreenShare();
+      stopScreenShare()
     } else {
-      startScreenShare();
-    }
-  };
-
-  const handleVoiceInteraction = (interaction) => {
-    // Handle voice interaction from VoiceAI component
-    console.log('Voice interaction:', interaction)
-  }
-
-  const submitCode = async () => {
-    if (!currentQuestion || !code.trim()) return
-
-    try {
-      setLoading(true)
-      
-      const response = await apiService.evaluateCode({
-        code,
-        question: currentQuestion,
-        language: 'javascript',
-        interviewId: currentInterview._id
-      })
-
-      if (response.success) {
-        // Update question with evaluation
-        const updatedQuestion = {
-          ...currentQuestion,
-          evaluation: response.evaluation,
-          completed: true,
-          userCode: code
-        }
-        
-        setQuestions(prev => prev.map((q, index) => 
-          index === currentQuestionIndex ? updatedQuestion : q
-        ))
-        
-        setCurrentQuestion(updatedQuestion)
-      }
-    } catch (error) {
-      setError('Failed to evaluate code')
-    } finally {
-      setLoading(false)
+      startScreenShare()
     }
   }
 
-  const nextQuestion = async () => {
-    try {
-      setLoading(true)
-      
-      const response = await apiService.generateQuestion({
-        difficulty: currentInterview.difficulty,
-        topic: currentInterview.topic,
-        previousQuestions: questions.map(q => q.title)
-      })
-
-      if (response.success) {
-        const newQuestion = response.question
-        setQuestions(prev => [...prev, newQuestion])
-        setCurrentQuestionIndex(prev => prev + 1)
-        setCurrentQuestion(newQuestion)
-        setCode(newQuestion.starterCode?.javascript || '// Write your solution here\n\n')
-      }
-    } catch (error) {
-      setError('Failed to generate next question')
-    } finally {
-      setLoading(false)
+  const handleVoiceToggle = () => {
+    if (isRecording) {
+      stopVoiceRecording()
+    } else {
+      startVoiceRecording()
     }
   }
 
-  const handleEndInterview = async () => {
-    try {
-      setLoading(true)
-      
-      const completedQuestions = questions.filter(q => q.completed).length
-      const averageScore = questions.reduce((acc, q) => acc + (q.evaluation?.scores?.overall || 0), 0) / questions.length
-      
-      const performance = {
-        questionsAttempted: questions.length,
-        questionsCompleted: completedQuestions,
-        averageScore: averageScore || 0,
-        totalTimeSpent: timeElapsed,
-        suspiciousActivities: suspiciousActivity
-      }
+  const handleCodeChange = (e) => {
+    setCode(e.target.value)
+  }
 
-      await apiService.completeInterview(currentInterview._id, {
-        scores: {
-          overall: performance.averageScore,
-          problemSolving: performance.averageScore,
-          codeQuality: 85,
-          communication: 80,
-          timeManagement: Math.max(100 - (timeElapsed / 60), 60)
-        },
-        feedback: {
-          strengths: ['Good problem-solving approach', 'Clear code structure'],
-          improvements: ['Consider edge cases', 'Optimize time complexity'],
-          suggestions: ['Practice more DSA problems', 'Focus on communication']
-        },
-        duration: timeElapsed,
-        suspiciousActivities: suspiciousActivity
-      })
+  const runCode = async () => {
+    setOutput('Running code...')
+    
+    setTimeout(() => {
+      const mockResults = [
+        { id: 1, passed: true, input: 'Example 1', expected: 'Expected 1', actual: 'Expected 1' },
+        { id: 2, passed: true, input: 'Example 2', expected: 'Expected 2', actual: 'Expected 2' },
+        { id: 3, passed: false, input: 'Example 3', expected: 'Expected 3', actual: 'Different' }
+      ]
+      setTestResults(mockResults)
       
-      setShowSummary(true)
-    } catch (error) {
-      setError('Failed to complete interview')
-    } finally {
-      setLoading(false)
-    }
+      const passedCount = mockResults.filter(test => test.passed).length
+      setOutput(`Test Results: ${passedCount}/${mockResults.length} passed\n\n${passedCount === mockResults.length ? 'All tests passed! ✓' : 'Some tests failed. Check your logic.'}`)
+    }, 2000)
+  }
+
+  const resetCode = () => {
+    const starterCode = currentQuestion?.starterCode?.javascript || '// Write your solution here\nfunction solution(params) {\n    // Your code here\n    \n}'
+    setCode(starterCode)
+    setOutput('')
+    setTestResults([])
+  }
+
+  const handleSendMessage = (e) => {
+    e.preventDefault()
+    if (!newMessage.trim()) return
+
+    sendChatMessage(newMessage)
+    setNewMessage('')
   }
 
   const formatTime = (seconds) => {
@@ -350,7 +266,11 @@ function InterviewRoom({ onEndInterview }) {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
   }
 
-  if (showSummary || currentInterview?.status === 'completed') {
+  const formatMessageTime = (date) => {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  }
+
+  if (currentInterview?.status === 'completed') {
     return (
       <div className="interview-summary">
         <div className="container">
@@ -426,7 +346,7 @@ function InterviewRoom({ onEndInterview }) {
     )
   }
 
-  if (!currentInterview || !currentQuestion) {
+  if (!interviewStarted || loading) {
     return (
       <div className="interview-loading">
         <div className="container">
@@ -443,17 +363,17 @@ function InterviewRoom({ onEndInterview }) {
     <div className="interview-room">
       <div className="interview-header">
         <div className="interview-info">
-          <h2>{currentInterview?.type?.toUpperCase() || 'DSA'} Interview Session</h2>
+          <h2>DSA Interview Session</h2>
           <div className="interview-meta">
             <span className="timer">
               <Clock size={16} />
               {formatTime(timeElapsed)}
             </span>
             <span className="question-counter">
-              Question {currentQuestionIndex + 1} of {questions.length}
+              Question {currentQuestionIndex + 1} of {Math.max(questions.length, 1)}
             </span>
             <span className="difficulty-badge">
-              {currentInterview?.difficulty?.toUpperCase() || 'MEDIUM'}
+              MEDIUM
             </span>
           </div>
         </div>
@@ -485,6 +405,7 @@ function InterviewRoom({ onEndInterview }) {
       {error && (
         <div className="error-banner">
           <p>{error}</p>
+          <button onClick={clearError}>×</button>
         </div>
       )}
 
@@ -512,27 +433,71 @@ function InterviewRoom({ onEndInterview }) {
             )}
           </div>
           
-          {/* Voice AI Interface */}
-          <VoiceAIInterface 
-            interviewContext={interviewContext}
-            onVoiceInteraction={handleVoiceInteraction}
-          />
+          {/* Voice Controls */}
+          <div className="voice-controls">
+            <div className="voice-status">
+              {aiSpeaking && (
+                <div className="ai-speaking">
+                  <span>AI is speaking...</span>
+                  <div className="speaking-animation">
+                    <div className="dot"></div>
+                    <div className="dot"></div>
+                    <div className="dot"></div>
+                  </div>
+                </div>
+              )}
+              
+              {isRecording && (
+                <div className="recording-status">
+                  <div className="recording-dot"></div>
+                  <span>Listening...</span>
+                </div>
+              )}
+              
+              {!isRecording && !aiSpeaking && (
+                <div className="voice-ready">
+                  <span>Ready for voice input</span>
+                </div>
+              )}
+            </div>
+
+            <button
+              className={`voice-button ${isRecording ? 'recording' : ''} ${aiSpeaking ? 'disabled' : ''}`}
+              onClick={handleVoiceToggle}
+              disabled={aiSpeaking}
+              title={isRecording ? 'Stop recording' : 'Start voice input'}
+            >
+              {isRecording ? <MicOff size={24} /> : <Mic size={24} />}
+            </button>
+
+            <div className="voice-instructions">
+              <p>
+                {aiSpeaking 
+                  ? 'AI is speaking, please wait...'
+                  : isRecording 
+                    ? 'Speak now, click to stop'
+                    : 'Click to start voice input'
+                }
+              </p>
+            </div>
+          </div>
         </div>
 
         <div className="coding-section">
           <div className="question-panel">
             <div className="question-header">
-              <h3>{currentQuestion.title}</h3>
-              <span className={`difficulty ${currentQuestion.difficulty?.toLowerCase() || 'medium'}`}>
-                {currentQuestion.difficulty || 'Medium'}
+              <h3>{currentQuestion?.title || 'Loading Question...'}</h3>
+              <span className={`difficulty ${currentQuestion?.difficulty?.toLowerCase() || 'medium'}`}>
+                {currentQuestion?.difficulty || 'Medium'}
               </span>
             </div>
             
             <div className="question-content">
-              <p>{currentQuestion.description}</p>
-              {currentQuestion.examples && (
-              <div className="example">
-                <strong>Example:</strong>
+              <p>{currentQuestion?.description || 'Loading problem description...'}</p>
+              
+              {currentQuestion?.examples && (
+                <div className="example">
+                  <strong>Example:</strong>
                   {currentQuestion.examples.map((example, index) => (
                     <pre key={index}>
                       Input: {example.input}
@@ -540,18 +505,18 @@ function InterviewRoom({ onEndInterview }) {
                       {example.explanation && `\nExplanation: ${example.explanation}`}
                     </pre>
                   ))}
-              </div>
+                </div>
               )}
               
-              {currentQuestion.hints && (
-              <div className="hints">
-                <strong>Hints:</strong>
-                <ul>
+              {currentQuestion?.hints && (
+                <div className="hints">
+                  <strong>Hints:</strong>
+                  <ul>
                     {currentQuestion.hints.map((hint, index) => (
-                    <li key={index}>{hint}</li>
-                  ))}
-                </ul>
-              </div>
+                      <li key={index}>{hint}</li>
+                    ))}
+                  </ul>
+                </div>
               )}
             </div>
 
@@ -559,12 +524,12 @@ function InterviewRoom({ onEndInterview }) {
               <button 
                 className="btn btn-success" 
                 onClick={submitCode}
-                disabled={!code.trim() || loading}
+                disabled={!canSubmitCode}
               >
                 {loading ? 'Evaluating...' : 'Submit Code'}
               </button>
               
-              {currentQuestion?.completed && (
+              {hasNextQuestion && (
                 <button 
                   className="btn btn-primary" 
                   onClick={nextQuestion}
@@ -576,7 +541,7 @@ function InterviewRoom({ onEndInterview }) {
               
               <button 
                 className="btn btn-secondary" 
-                onClick={handleEndInterview}
+                onClick={endInterview}
                 disabled={loading}
               >
                 Complete Interview
@@ -584,13 +549,104 @@ function InterviewRoom({ onEndInterview }) {
             </div>
           </div>
 
-          <CodeEditor 
-            code={code}
-            onCodeChange={setCode}
-            question={currentQuestion}
-            evaluation={currentQuestion?.evaluation}
-            loading={loading}
-          />
+          {/* Code Editor */}
+          <div className="code-editor">
+            <div className="editor-header">
+              <div className="editor-tabs">
+                <div className="tab active">
+                  <span>Solution.js</span>
+                </div>
+              </div>
+              <div className="editor-actions">
+                <button className="editor-btn" onClick={resetCode} title="Reset code">
+                  <RotateCcw size={16} />
+                </button>
+                <button 
+                  className="btn btn-success editor-run-btn" 
+                  onClick={runCode}
+                >
+                  <Play size={16} />
+                  Run Code
+                </button>
+              </div>
+            </div>
+
+            <div className="editor-content">
+              <div className="code-input">
+                <textarea
+                  value={code}
+                  onChange={handleCodeChange}
+                  className="code-textarea"
+                  placeholder="Write your code here..."
+                  spellCheck="false"
+                />
+              </div>
+
+              <div className="editor-output">
+                <div className="output-header">
+                  <h4>Output</h4>
+                </div>
+                <div className="output-content">
+                  {output && (
+                    <pre className="output-text">{output}</pre>
+                  )}
+                  
+                  {testResults.length > 0 && (
+                    <div className="test-results">
+                      <h5>Test Results</h5>
+                      {testResults.map(test => (
+                        <div key={test.id} className={`test-case ${test.passed ? 'passed' : 'failed'}`}>
+                          <div className="test-status">
+                            {test.passed ? '✓' : '✗'}
+                          </div>
+                          <div className="test-details">
+                            <div className="test-input">Input: {test.input}</div>
+                            <div className="test-expected">Expected: {test.expected}</div>
+                            <div className="test-actual">Actual: {test.actual}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Chat Section */}
+        <div className="interview-chat">
+          <div className="chat-header">
+            <MessageCircle size={20} />
+            <h4>AI Interview Assistant</h4>
+          </div>
+
+          <div className="chat-messages">
+            {chatMessages.map(message => (
+              <div key={message.id} className={`message ${message.sender}`}>
+                <div className="message-content">
+                  <div className="message-text">{message.message}</div>
+                  <div className="message-time">{formatMessageTime(message.timestamp)}</div>
+                </div>
+                <div className="message-avatar">
+                  {message.sender === 'ai' ? 'AI' : 'You'}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <form className="chat-input" onSubmit={handleSendMessage}>
+            <input
+              type="text"
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              placeholder="Ask a question or explain your approach..."
+              className="chat-input-field"
+            />
+            <button type="submit" className="chat-send-btn" disabled={!newMessage.trim()}>
+              <Send size={16} />
+            </button>
+          </form>
         </div>
       </div>
     </div>

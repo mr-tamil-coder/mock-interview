@@ -9,8 +9,16 @@ class AIService {
   constructor() {
     this.genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     this.model = this.genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
-    this.ttsClient = new textToSpeech.TextToSpeechClient();
-    this.speechClient = new speech.SpeechClient();
+    
+    // Initialize Google Cloud clients only if credentials are available
+    try {
+      if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+        this.ttsClient = new textToSpeech.TextToSpeechClient();
+        this.speechClient = new speech.SpeechClient();
+      }
+    } catch (error) {
+      console.warn('Google Cloud services not available:', error.message);
+    }
     
     // Interview context storage
     this.interviewContexts = new Map();
@@ -60,8 +68,13 @@ Keep the tone conversational and supportive while maintaining interview professi
       // Generate first question
       const question = await this.generateDSAQuestion(difficulty, topic, []);
       
-      // Convert to speech
-      const audio = await this.textToSpeech(message);
+      // Convert to speech if available
+      let audio = null;
+      try {
+        audio = await this.textToSpeech(message);
+      } catch (error) {
+        console.warn('Text-to-speech not available:', error.message);
+      }
       
       // Update context
       const context = this.interviewContexts.get(interviewId);
@@ -80,7 +93,7 @@ Keep the tone conversational and supportive while maintaining interview professi
     }
   }
 
-  async generateDSAQuestion(difficulty, topic, previousQuestions = []) {
+  async generateQuestion(difficulty, topic, previousQuestions = []) {
     const difficultyMap = {
       easy: 'Easy (suitable for beginners, basic array/string operations)',
       medium: 'Medium (requires good understanding of data structures)',
@@ -114,6 +127,7 @@ Make sure this is a DIFFERENT problem.
 
 Format as JSON:
 {
+  "id": "unique-id",
   "title": "Problem Title",
   "description": "Clear problem description",
   "difficulty": "${difficulty}",
@@ -139,7 +153,7 @@ Format as JSON:
     "space": "O(1)"
   },
   "starterCode": {
-    "javascript": "function solutionName(params) {\n    // Your code here\n    \n}"
+    "javascript": "function solutionName(params) {\\n    // Your code here\\n    \\n}"
   }
 }`;
 
@@ -150,7 +164,9 @@ Format as JSON:
       // Clean and parse JSON response
       const jsonMatch = response.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]);
+        const question = JSON.parse(jsonMatch[0]);
+        question.id = uuidv4();
+        return question;
       }
       
       // Fallback question if parsing fails
@@ -258,7 +274,13 @@ Format as JSON:
   async processVoiceInput(audioData, interviewId) {
     try {
       // Convert speech to text
-      const transcription = await this.speechToText(audioData);
+      let transcription = 'Unable to transcribe audio';
+      try {
+        transcription = await this.speechToText(audioData);
+      } catch (error) {
+        console.warn('Speech-to-text not available:', error.message);
+        transcription = 'Voice input received but transcription unavailable';
+      }
       
       const context = this.interviewContexts.get(interviewId);
       if (context) {
@@ -276,7 +298,12 @@ Format as JSON:
       const aiResponse = await this.generateContextualResponse(transcription, context);
       
       // Convert response to speech
-      const audio = await this.textToSpeech(aiResponse);
+      let audio = null;
+      try {
+        audio = await this.textToSpeech(aiResponse);
+      } catch (error) {
+        console.warn('Text-to-speech not available:', error.message);
+      }
       
       return {
         transcription,
@@ -287,6 +314,256 @@ Format as JSON:
     } catch (error) {
       console.error('Voice processing error:', error);
       throw new Error('Failed to process voice input');
+    }
+  }
+
+  async processChatMessage(data) {
+    const { message, context, interviewId, userId } = data;
+    
+    try {
+      const interviewContext = this.interviewContexts.get(interviewId);
+      
+      const prompt = `You are conducting a technical interview. The candidate just said: "${message}"
+
+Interview Context:
+- Phase: ${interviewContext?.currentPhase || 'problem_solving'}
+- Topic: ${interviewContext?.topic || 'arrays'}
+- Difficulty: ${interviewContext?.difficulty || 'medium'}
+- Questions Asked: ${interviewContext?.questionsAsked?.length || 0}
+
+Current Question: ${context?.currentQuestion?.title || 'None'}
+
+Respond as an experienced interviewer:
+1. Acknowledge their input appropriately
+2. Provide guidance if they're stuck (hints, not solutions)
+3. Ask follow-up questions to assess understanding
+4. Encourage good problem-solving practices
+5. Keep the conversation flowing naturally
+
+Be supportive but maintain interview standards. Keep response under 100 words.`;
+
+      const result = await this.model.generateContent(prompt);
+      const response = result.response.text();
+
+      // Convert to speech if available
+      let audio = null;
+      try {
+        audio = await this.textToSpeech(response);
+      } catch (error) {
+        console.warn('Text-to-speech not available:', error.message);
+      }
+
+      return {
+        message: response,
+        audio,
+        timestamp: new Date()
+      };
+    } catch (error) {
+      console.error('Chat processing error:', error);
+      return {
+        message: "I understand. Please continue with your approach and let me know if you need any clarification.",
+        audio: null,
+        timestamp: new Date()
+      };
+    }
+  }
+
+  async analyzeScreenShare(screenData, interviewId) {
+    const context = this.interviewContexts.get(interviewId);
+    if (context) {
+      context.screenShareEvents.push({
+        timestamp: new Date(),
+        activity: screenData.activity,
+        duration: screenData.duration
+      });
+    }
+
+    // Analyze screen sharing behavior
+    const suspiciousActivities = [
+      'tab_switch_to_search',
+      'copy_paste_detected',
+      'external_ide_usage',
+      'documentation_lookup_excessive'
+    ];
+
+    const isSuspicious = suspiciousActivities.some(activity => 
+      screenData.activity.includes(activity)
+    );
+
+    return {
+      suspicious: isSuspicious,
+      activities: screenData.activity,
+      recommendations: isSuspicious 
+        ? ['Focus on problem-solving without external help', 'Try to work through the logic step by step']
+        : ['Good focus on the problem', 'Keep up the systematic approach']
+    };
+  }
+
+  async generateInterviewSummary(data) {
+    const { interviewId, duration } = data;
+    const context = this.interviewContexts.get(interviewId);
+    
+    if (!context) {
+      return this.getDefaultSummary();
+    }
+
+    const prompt = `Generate a comprehensive interview summary for this technical interview:
+
+**Interview Details:**
+- Duration: ${duration} minutes
+- Topic: ${context.topic}
+- Difficulty: ${context.difficulty}
+- Questions Asked: ${context.questionsAsked.length}
+
+**Performance Data:**
+- Code Submissions: ${context.codeSubmissions.length}
+- Voice Responses: ${context.userResponses.filter(r => r.type === 'voice').length}
+- Screen Share Events: ${context.screenShareEvents.length}
+
+Provide a comprehensive evaluation with:
+
+1. **Overall Performance Score (0-100)**
+2. **Category Breakdown:**
+   - Problem Solving (0-100)
+   - Code Quality (0-100)
+   - Communication Skills (0-100)
+   - Time Management (0-100)
+   - Technical Knowledge (0-100)
+
+3. **Detailed Feedback:**
+   - Key Strengths (3-5 points)
+   - Areas for Improvement (3-5 points)
+   - Specific Recommendations (5-7 actionable items)
+
+Format as JSON:
+{
+  "overallScore": 78,
+  "categoryScores": {
+    "problemSolving": 82,
+    "codeQuality": 75,
+    "communication": 80,
+    "timeManagement": 70,
+    "technicalKnowledge": 85
+  },
+  "feedback": {
+    "strengths": ["strength 1", "strength 2", "strength 3"],
+    "improvements": ["improvement 1", "improvement 2", "improvement 3"],
+    "recommendations": ["rec 1", "rec 2", "rec 3", "rec 4", "rec 5"]
+  },
+  "performance": {
+    "bestMoments": ["moment 1", "moment 2"],
+    "challengingAreas": ["area 1", "area 2"],
+    "interviewReadiness": 7
+  },
+  "summary": "Overall interview performance summary in 2-3 sentences"
+}`;
+
+    try {
+      const result = await this.model.generateContent(prompt);
+      const response = result.response.text();
+      
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const summary = JSON.parse(jsonMatch[0]);
+        
+        // Generate audio summary if available
+        let audio = null;
+        try {
+          const audioSummary = `Interview completed! Your overall score is ${summary.overallScore}%. ${summary.summary}`;
+          audio = await this.textToSpeech(audioSummary);
+        } catch (error) {
+          console.warn('Audio summary not available:', error.message);
+        }
+        
+        // Clean up context
+        this.interviewContexts.delete(interviewId);
+        
+        return {
+          ...summary,
+          audio,
+          generatedAt: new Date()
+        };
+      }
+      
+      throw new Error('Failed to parse summary response');
+    } catch (error) {
+      console.error('Summary generation error:', error);
+      return this.getDefaultSummary();
+    }
+  }
+
+  async textToSpeech(text) {
+    if (!this.ttsClient) {
+      return null;
+    }
+
+    try {
+      const request = {
+        input: { text },
+        voice: {
+          languageCode: 'en-US',
+          name: 'en-US-Neural2-F',
+          ssmlGender: 'FEMALE'
+        },
+        audioConfig: {
+          audioEncoding: 'MP3',
+          speakingRate: 0.9,
+          pitch: 0.0,
+          volumeGainDb: 0.0
+        }
+      };
+
+      const [response] = await this.ttsClient.synthesizeSpeech(request);
+      const audioId = uuidv4();
+      const audioPath = path.join(process.cwd(), 'uploads', 'audio', `${audioId}.mp3`);
+      
+      // Ensure directory exists
+      const dir = path.dirname(audioPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      
+      fs.writeFileSync(audioPath, response.audioContent, 'binary');
+      
+      return {
+        audioId,
+        url: `/api/ai/audio/${audioId}.mp3`,
+        duration: Math.ceil(text.length / 10)
+      };
+    } catch (error) {
+      console.error('Text-to-speech error:', error);
+      return null;
+    }
+  }
+
+  async speechToText(audioData) {
+    if (!this.speechClient) {
+      throw new Error('Speech-to-text service not available');
+    }
+
+    try {
+      const request = {
+        audio: {
+          content: audioData
+        },
+        config: {
+          encoding: 'WEBM_OPUS',
+          sampleRateHertz: 48000,
+          languageCode: 'en-US',
+          enableAutomaticPunctuation: true,
+          model: 'latest_long'
+        }
+      };
+
+      const [response] = await this.speechClient.recognize(request);
+      const transcription = response.results
+        .map(result => result.alternatives[0].transcript)
+        .join('\n');
+
+      return transcription || 'Unable to transcribe audio clearly';
+    } catch (error) {
+      console.error('Speech-to-text error:', error);
+      return 'Unable to transcribe audio';
     }
   }
 
@@ -306,11 +583,6 @@ Evaluate communication skills (0-100 each):
 3. **Confidence:** Level of confidence in delivery
 4. **Structure:** Logical flow and organization of thoughts
 5. **Engagement:** Active participation and enthusiasm
-
-Provide specific feedback on:
-- Communication strengths
-- Areas for improvement
-- Suggestions for better technical communication
 
 Format as JSON:
 {
@@ -374,221 +646,6 @@ Keep response conversational and under 100 words.`;
     } catch (error) {
       console.error('Contextual response error:', error);
       return "I understand. Please continue with your approach and let me know if you need any clarification.";
-    }
-  }
-
-  async analyzeScreenShare(screenData, interviewId) {
-    const context = this.interviewContexts.get(interviewId);
-    if (context) {
-      context.screenShareEvents.push({
-        timestamp: new Date(),
-        activity: screenData.activity,
-        duration: screenData.duration
-      });
-    }
-
-    // Analyze screen sharing behavior
-    const suspiciousActivities = [
-      'tab_switch_to_search',
-      'copy_paste_detected',
-      'external_ide_usage',
-      'documentation_lookup_excessive'
-    ];
-
-    const isSuspicious = suspiciousActivities.some(activity => 
-      screenData.activity.includes(activity)
-    );
-
-    return {
-      suspicious: isSuspicious,
-      activities: screenData.activity,
-      recommendations: isSuspicious 
-        ? ['Focus on problem-solving without external help', 'Try to work through the logic step by step']
-        : ['Good focus on the problem', 'Keep up the systematic approach']
-    };
-  }
-
-  async generateInterviewSummary(data) {
-    const { interviewId, duration } = data;
-    const context = this.interviewContexts.get(interviewId);
-    
-    if (!context) {
-      throw new Error('Interview context not found');
-    }
-
-    const prompt = `Generate a comprehensive interview summary for this technical interview:
-
-**Interview Details:**
-- Duration: ${duration} minutes
-- Topic: ${context.topic}
-- Difficulty: ${context.difficulty}
-- Questions Asked: ${context.questionsAsked.length}
-
-**Performance Data:**
-- Code Submissions: ${context.codeSubmissions.length}
-- Voice Responses: ${context.userResponses.filter(r => r.type === 'voice').length}
-- Screen Share Events: ${context.screenShareEvents.length}
-
-**Code Submissions Analysis:**
-${context.codeSubmissions.map((sub, i) => `
-Problem ${i + 1}: ${sub.question}
-Time Spent: ${sub.timeSpent} minutes
-Code Quality: [Analyze the approach and implementation]
-`).join('\n')}
-
-**Communication Analysis:**
-Voice Responses: ${context.userResponses.length}
-[Analyze communication patterns, clarity, technical explanation ability]
-
-**Screen Activity:**
-${context.screenShareEvents.length > 0 ? 'Screen sharing was monitored' : 'No screen sharing data'}
-
-Provide a comprehensive evaluation with:
-
-1. **Overall Performance Score (0-100)**
-2. **Category Breakdown:**
-   - Problem Solving (0-100)
-   - Code Quality (0-100)
-   - Communication Skills (0-100)
-   - Time Management (0-100)
-   - Technical Knowledge (0-100)
-
-3. **Detailed Feedback:**
-   - Key Strengths (3-5 points)
-   - Areas for Improvement (3-5 points)
-   - Specific Recommendations (5-7 actionable items)
-
-4. **Interview Performance:**
-   - Best moments during the interview
-   - Challenging areas that need work
-   - Readiness for real interviews (scale 1-10)
-
-5. **Next Steps:**
-   - Recommended study topics
-   - Practice suggestions
-   - Timeline for improvement
-
-Format as JSON:
-{
-  "overallScore": 78,
-  "categoryScores": {
-    "problemSolving": 82,
-    "codeQuality": 75,
-    "communication": 80,
-    "timeManagement": 70,
-    "technicalKnowledge": 85
-  },
-  "feedback": {
-    "strengths": ["strength 1", "strength 2", "strength 3"],
-    "improvements": ["improvement 1", "improvement 2", "improvement 3"],
-    "recommendations": ["rec 1", "rec 2", "rec 3", "rec 4", "rec 5"]
-  },
-  "performance": {
-    "bestMoments": ["moment 1", "moment 2"],
-    "challengingAreas": ["area 1", "area 2"],
-    "interviewReadiness": 7
-  },
-  "nextSteps": {
-    "studyTopics": ["topic 1", "topic 2", "topic 3"],
-    "practiceAreas": ["area 1", "area 2"],
-    "timelineWeeks": 4
-  },
-  "summary": "Overall interview performance summary in 2-3 sentences"
-}`;
-
-    try {
-      const result = await this.model.generateContent(prompt);
-      const response = result.response.text();
-      
-      const jsonMatch = response.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const summary = JSON.parse(jsonMatch[0]);
-        
-        // Generate audio summary
-        const audioSummary = `Interview completed! Your overall score is ${summary.overallScore}%. ${summary.summary}`;
-        const audio = await this.textToSpeech(audioSummary);
-        
-        // Clean up context
-        this.interviewContexts.delete(interviewId);
-        
-        return {
-          ...summary,
-          audio,
-          generatedAt: new Date()
-        };
-      }
-      
-      throw new Error('Failed to parse summary response');
-    } catch (error) {
-      console.error('Summary generation error:', error);
-      return this.getDefaultSummary();
-    }
-  }
-
-  async textToSpeech(text) {
-    try {
-      const request = {
-        input: { text },
-        voice: {
-          languageCode: 'en-US',
-          name: 'en-US-Neural2-F',
-          ssmlGender: 'FEMALE'
-        },
-        audioConfig: {
-          audioEncoding: 'MP3',
-          speakingRate: 0.9,
-          pitch: 0.0,
-          volumeGainDb: 0.0
-        }
-      };
-
-      const [response] = await this.ttsClient.synthesizeSpeech(request);
-      const audioId = uuidv4();
-      const audioPath = path.join(process.cwd(), 'uploads', 'audio', `${audioId}.mp3`);
-      
-      // Ensure directory exists
-      const dir = path.dirname(audioPath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-      
-      fs.writeFileSync(audioPath, response.audioContent, 'binary');
-      
-      return {
-        audioId,
-        url: `/api/ai/audio/${audioId}.mp3`,
-        duration: Math.ceil(text.length / 10)
-      };
-    } catch (error) {
-      console.error('Text-to-speech error:', error);
-      return null;
-    }
-  }
-
-  async speechToText(audioData) {
-    try {
-      const request = {
-        audio: {
-          content: audioData
-        },
-        config: {
-          encoding: 'WEBM_OPUS',
-          sampleRateHertz: 48000,
-          languageCode: 'en-US',
-          enableAutomaticPunctuation: true,
-          model: 'latest_long'
-        }
-      };
-
-      const [response] = await this.speechClient.recognize(request);
-      const transcription = response.results
-        .map(result => result.alternatives[0].transcript)
-        .join('\n');
-
-      return transcription || 'Unable to transcribe audio clearly';
-    } catch (error) {
-      console.error('Speech-to-text error:', error);
-      return 'Unable to transcribe audio';
     }
   }
 
@@ -662,6 +719,7 @@ Format as JSON:
 
     const question = questions[difficulty] || questions.medium;
     return {
+      id: uuidv4(),
       ...question,
       difficulty,
       topic,
