@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
+import SpeechRecognition, { useSpeechRecognition } from 'react-speech-recognition'
 import { useAuth } from '../hooks/useAuth'
 import { useInterview } from '../hooks/useInterview'
+import voiceService from '../services/voiceService'
 import { 
   Camera, 
   CameraOff, 
@@ -55,10 +57,21 @@ function InterviewRoom({ onEndInterview }) {
   const [newMessage, setNewMessage] = useState('')
   const [output, setOutput] = useState('')
   const [testResults, setTestResults] = useState([])
+  const [isVoiceRecording, setIsVoiceRecording] = useState(false)
+  const [voiceTranscript, setVoiceTranscript] = useState('')
+  const [aiSpeaking, setAiSpeaking] = useState(false)
   
   const videoRef = useRef(null)
   const streamRef = useRef(null)
   const screenStreamRef = useRef(null)
+  
+  // Speech recognition hook
+  const {
+    transcript,
+    listening,
+    resetTranscript,
+    browserSupportsSpeechRecognition
+  } = useSpeechRecognition()
 
   useEffect(() => {
     if (!interviewStarted && !loading) {
@@ -76,6 +89,7 @@ function InterviewRoom({ onEndInterview }) {
       stopCamera()
       stopScreenShare()
       stopScreenMonitoring()
+      voiceService.cleanup()
     }
   }, [interviewStarted, loading])
 
@@ -220,11 +234,86 @@ function InterviewRoom({ onEndInterview }) {
   }
 
   const handleVoiceToggle = () => {
-    if (isRecording) {
+    if (isVoiceRecording) {
       stopVoiceRecording()
     } else {
       startVoiceRecording()
     }
+  }
+  
+  const startVoiceRecording = async () => {
+    if (!browserSupportsSpeechRecognition) {
+      alert('Speech recognition not supported in this browser')
+      return
+    }
+    
+    try {
+      resetTranscript()
+      await SpeechRecognition.startListening({ continuous: true, language: 'en-US' })
+      setIsVoiceRecording(true)
+      console.log('🎤 Voice recording started')
+    } catch (error) {
+      console.error('Failed to start voice recording:', error)
+    }
+  }
+  
+  const stopVoiceRecording = async () => {
+    try {
+      SpeechRecognition.stopListening()
+      setIsVoiceRecording(false)
+      
+      if (transcript.trim()) {
+        console.log('Voice transcript:', transcript)
+        
+        // Send to AI for processing
+        setAiSpeaking(true)
+        sendChatMessage(transcript)
+        
+        // Generate AI response and speak it
+        setTimeout(async () => {
+          const aiResponse = generateAIResponse(transcript)
+          
+          // Use browser text-to-speech
+          try {
+            await voiceService.speakText(aiResponse, { rate: 0.9, pitch: 1.0 })
+          } catch (error) {
+            console.error('Text-to-speech error:', error)
+          }
+          
+          setAiSpeaking(false)
+        }, 1000)
+        
+        resetTranscript()
+      }
+    } catch (error) {
+      console.error('Failed to stop voice recording:', error)
+      setIsVoiceRecording(false)
+    }
+  }
+  
+  const generateAIResponse = (userInput) => {
+    const responses = [
+      "That's a good approach! Can you explain the time complexity of your solution?",
+      "Interesting thinking! Have you considered any edge cases for this problem?",
+      "Great explanation! Now let's implement this step by step in your code.",
+      "Good observation! What data structure would be most efficient here?",
+      "Excellent! Can you walk me through how this algorithm works with an example?"
+    ]
+    
+    // Simple keyword-based responses
+    if (userInput.toLowerCase().includes('stuck') || userInput.toLowerCase().includes('help')) {
+      return "No worries! Let me give you a hint. Think about what data structure could help you store and retrieve information efficiently."
+    }
+    
+    if (userInput.toLowerCase().includes('time complexity') || userInput.toLowerCase().includes('big o')) {
+      return "Great question about complexity! For this problem, we want to aim for O(n) time complexity. Can you think of how to achieve that?"
+    }
+    
+    if (userInput.toLowerCase().includes('array') || userInput.toLowerCase().includes('list')) {
+      return "Good! Arrays are indeed useful here. Consider using techniques like two pointers or hash maps to optimize your solution."
+    }
+    
+    return responses[Math.floor(Math.random() * responses.length)]
   }
 
   const handleCodeChange = (e) => {
@@ -449,14 +538,20 @@ function InterviewRoom({ onEndInterview }) {
                 </div>
               )}
               
-              {isRecording && (
+              {isVoiceRecording && (
                 <div className="recording-status">
                   <div className="recording-dot"></div>
                   <span>Listening...</span>
                 </div>
               )}
               
-              {!isRecording && !aiSpeaking && (
+              {transcript && (
+                <div className="live-transcript">
+                  <span>You said: "{transcript}"</span>
+                </div>
+              )}
+              
+              {!isVoiceRecording && !aiSpeaking && !transcript && (
                 <div className="voice-ready">
                   <span>Ready for voice input</span>
                 </div>
@@ -464,19 +559,19 @@ function InterviewRoom({ onEndInterview }) {
             </div>
 
             <button
-              className={`voice-button ${isRecording ? 'recording' : ''} ${aiSpeaking ? 'disabled' : ''}`}
+              className={`voice-button ${isVoiceRecording ? 'recording' : ''} ${aiSpeaking ? 'disabled' : ''}`}
               onClick={handleVoiceToggle}
               disabled={aiSpeaking}
-              title={isRecording ? 'Stop recording' : 'Start voice input'}
+              title={isVoiceRecording ? 'Stop recording' : 'Start voice input'}
             >
-              {isRecording ? <MicOff size={24} /> : <Mic size={24} />}
+              {isVoiceRecording ? <MicOff size={24} /> : <Mic size={24} />}
             </button>
 
             <div className="voice-instructions">
               <p>
                 {aiSpeaking 
                   ? 'AI is speaking, please wait...'
-                  : isRecording 
+                  : isVoiceRecording 
                     ? 'Speak now, click to stop'
                     : 'Click to start voice input'
                 }
@@ -552,68 +647,13 @@ function InterviewRoom({ onEndInterview }) {
           </div>
 
           {/* Code Editor */}
-          <div className="code-editor">
-            <div className="editor-header">
-              <div className="editor-tabs">
-                <div className="tab active">
-                  <span>Solution.js</span>
-                </div>
-              </div>
-              <div className="editor-actions">
-                <button className="editor-btn" onClick={resetCode} title="Reset code">
-                  <RotateCcw size={16} />
-                </button>
-                <button 
-                  className="btn btn-success editor-run-btn" 
-                  onClick={runCode}
-                >
-                  <Play size={16} />
-                  Run Code
-                </button>
-              </div>
-            </div>
-
-            <div className="editor-content">
-              <div className="code-input">
-                <textarea
-                  value={code}
-                  onChange={handleCodeChange}
-                  className="code-textarea"
-                  placeholder="Write your code here..."
-                  spellCheck="false"
-                />
-              </div>
-
-              <div className="editor-output">
-                <div className="output-header">
-                  <h4>Output</h4>
-                </div>
-                <div className="output-content">
-                  {output && (
-                    <pre className="output-text">{output}</pre>
-                  )}
-                  
-                  {testResults.length > 0 && (
-                    <div className="test-results">
-                      <h5>Test Results</h5>
-                      {testResults.map(test => (
-                        <div key={test.id} className={`test-case ${test.passed ? 'passed' : 'failed'}`}>
-                          <div className="test-status">
-                            {test.passed ? '✓' : '✗'}
-                          </div>
-                          <div className="test-details">
-                            <div className="test-input">Input: {test.input}</div>
-                            <div className="test-expected">Expected: {test.expected}</div>
-                            <div className="test-actual">Actual: {test.actual}</div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
+          <CodeEditor 
+            code={code}
+            onCodeChange={setCode}
+            question={currentQuestion}
+            evaluation={null}
+            loading={loading}
+          />
         </div>
 
         {/* Chat Section */}

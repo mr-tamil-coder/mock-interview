@@ -43,21 +43,6 @@ class AIService {
       currentPhase: 'introduction'
     });
 
-    // Fallback response if Gemini API is not available
-    if (!process.env.GEMINI_API_KEY) {
-      console.warn('⚠️  Using fallback AI response (no Gemini API key)');
-      const fallbackQuestion = this.getDefaultDSAQuestion(difficulty, topic);
-      const context = this.interviewContexts.get(interviewId);
-      context.questionsAsked.push(fallbackQuestion);
-      context.currentPhase = 'problem_solving';
-      
-      return {
-        message: `Hello! I'm your AI interviewer today. I'm excited to work with you on some ${difficulty} level ${topic} problems. Let's start with your first coding challenge. Take your time to understand the problem and think through your approach.`,
-        audio: null,
-        question: fallbackQuestion,
-        interviewPhase: 'introduction'
-      };
-    }
 
     const prompt = `You are an experienced technical interviewer conducting a ${difficulty} level Data Structures and Algorithms interview focusing on ${topic}.
 
@@ -699,52 +684,165 @@ Keep response conversational and under 100 words.`;
   getDefaultDSAQuestion(difficulty, topic) {
     const questions = {
       easy: {
-        title: "Two Sum",
-        description: "Given an array of integers nums and an integer target, return indices of the two numbers such that they add up to target. You may assume that each input would have exactly one solution, and you may not use the same element twice.",
+        title: "Two Sum Problem",
+        description: "Given an array of integers nums and an integer target, return indices of the two numbers such that they add up to target.\n\nYou may assume that each input would have exactly one solution, and you may not use the same element twice.\n\nYou can return the answer in any order.",
         examples: [
           {
-            input: "nums = [2,7,11,15], target = 9",
+            input: "nums = [2, 7, 11, 15], target = 9",
             output: "[0,1]",
             explanation: "Because nums[0] + nums[1] == 9, we return [0, 1]."
+          },
+          {
+            input: "nums = [3, 2, 4], target = 6",
+            output: "[1,2]",
+            explanation: "Because nums[1] + nums[2] == 6, we return [1, 2]."
           }
+        ],
+        constraints: [
+          "2 ≤ nums.length ≤ 10⁴",
+          "-10⁹ ≤ nums[i] ≤ 10⁹",
+          "-10⁹ ≤ target ≤ 10⁹",
+          "Only one valid answer exists"
         ],
         hints: [
           "Think about using a hash map to store complements",
           "For each number, check if its complement exists in the hash map",
           "The complement of a number x for target t is (t - x)"
-        ]
+        ],
+        testCases: [
+          { input: "[2, 7, 11, 15], target = 9", expectedOutput: "[0, 1]", isHidden: false },
+          { input: "[3, 2, 4], target = 6", expectedOutput: "[1, 2]", isHidden: false },
+          { input: "[3, 3], target = 6", expectedOutput: "[0, 1]", isHidden: true }
+        ],
+        starterCode: {
+          java: `class Solution {
+    public int[] twoSum(int[] nums, int target) {
+        // Write your solution here
+        
+    }
+}`,
+          javascript: `function twoSum(nums, target) {
+    // Write your solution here
+    
+}`,
+          python: `def twoSum(nums, target):
+    # Write your solution here
+    pass`,
+          cpp: `class Solution {
+public:
+    vector<int> twoSum(vector<int>& nums, int target) {
+        // Write your solution here
+        
+    }
+};`
+        }
       },
       medium: {
         title: "Longest Substring Without Repeating Characters",
-        description: "Given a string s, find the length of the longest substring without repeating characters.",
+        description: "Given a string s, find the length of the longest substring without repeating characters.\n\nA substring is a contiguous non-empty sequence of characters within a string.",
         examples: [
           {
             input: 's = "abcabcbb"',
             output: "3",
             explanation: 'The answer is "abc", with the length of 3.'
+          },
+          {
+            input: 's = "bbbbb"',
+            output: "1",
+            explanation: 'The answer is "b", with the length of 1.'
           }
+        ],
+        constraints: [
+          "0 ≤ s.length ≤ 5 * 10⁴",
+          "s consists of English letters, digits, symbols and spaces"
         ],
         hints: [
           "Use sliding window technique",
           "Keep track of characters using a hash set",
           "Move the left pointer when you find a duplicate"
-        ]
+        ],
+        testCases: [
+          { input: '"abcabcbb"', expectedOutput: "3", isHidden: false },
+          { input: '"bbbbb"', expectedOutput: "1", isHidden: false },
+          { input: '"pwwkew"', expectedOutput: "3", isHidden: true }
+        ],
+        starterCode: {
+          java: `class Solution {
+    public int lengthOfLongestSubstring(String s) {
+        // Write your solution here
+        
+    }
+}`,
+          javascript: `function lengthOfLongestSubstring(s) {
+    // Write your solution here
+    
+}`,
+          python: `def lengthOfLongestSubstring(s):
+    # Write your solution here
+    pass`,
+          cpp: `class Solution {
+public:
+    int lengthOfLongestSubstring(string s) {
+        // Write your solution here
+        
+    }
+};`
+        }
       },
       hard: {
         title: "Median of Two Sorted Arrays",
-        description: "Given two sorted arrays nums1 and nums2 of size m and n respectively, return the median of the two sorted arrays. The overall run time complexity should be O(log (m+n)).",
+        description: "Given two sorted arrays nums1 and nums2 of size m and n respectively, return the median of the two sorted arrays.\n\nThe overall run time complexity should be O(log (m+n)).",
         examples: [
           {
             input: "nums1 = [1,3], nums2 = [2]",
             output: "2.00000",
             explanation: "merged array = [1,2,3] and median is 2."
+          },
+          {
+            input: "nums1 = [1,2], nums2 = [3,4]",
+            output: "2.50000",
+            explanation: "merged array = [1,2,3,4] and median is (2 + 3) / 2 = 2.5."
           }
+        ],
+        constraints: [
+          "nums1.length == m",
+          "nums2.length == n",
+          "0 ≤ m ≤ 1000",
+          "0 ≤ n ≤ 1000",
+          "1 ≤ m + n ≤ 2000"
         ],
         hints: [
           "Think about binary search approach",
           "You don't need to merge the arrays",
           "Find the partition point that divides both arrays"
-        ]
+        ],
+        testCases: [
+          { input: "[1,3], [2]", expectedOutput: "2.00000", isHidden: false },
+          { input: "[1,2], [3,4]", expectedOutput: "2.50000", isHidden: false },
+          { input: "[0,0], [0,0]", expectedOutput: "0.00000", isHidden: true }
+        ],
+        starterCode: {
+          java: `class Solution {
+    public double findMedianSortedArrays(int[] nums1, int[] nums2) {
+        // Write your solution here
+        
+    }
+}`,
+          javascript: `function findMedianSortedArrays(nums1, nums2) {
+    // Write your solution here
+    
+}`,
+          python: `def findMedianSortedArrays(nums1, nums2):
+    # Write your solution here
+    pass`,
+          cpp: `class Solution {
+public:
+    double findMedianSortedArrays(vector<int>& nums1, vector<int>& nums2) {
+        // Write your solution here
+        
+    }
+};`
+        }
       }
     };
 
@@ -754,13 +852,7 @@ Keep response conversational and under 100 words.`;
       ...question,
       difficulty,
       topic,
-      testCases: [
-        { input: "test input", expectedOutput: "expected output", isHidden: false }
-      ],
       expectedComplexity: { time: "O(n)", space: "O(n)" },
-      starterCode: {
-        javascript: `function solution(params) {\n    // Your code here\n    \n}`
-      }
     };
   }
 
