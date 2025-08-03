@@ -16,11 +16,13 @@ class SocketService {
       return;
     }
 
+    console.log('🔌 Connecting to socket server...');
+    
     this.socket = io('http://localhost:5000', {
       auth: {
         token
       },
-      transports: ['websocket']
+      transports: ['websocket', 'polling']
     });
 
     this.socket.on('connect', () => {
@@ -31,6 +33,10 @@ class SocketService {
     this.socket.on('disconnect', () => {
       console.log('❌ Disconnected from server');
       this.isConnected = false;
+    });
+
+    this.socket.on('connect_error', (error) => {
+      console.error('❌ Socket connection error:', error);
     });
 
     this.socket.on('error', (error) => {
@@ -122,7 +128,10 @@ class SocketService {
 
   startInterview(data) {
     if (this.socket && this.isConnected) {
+      console.log('📤 Emitting start-interview event:', data);
       this.socket.emit('start-interview', data);
+    } else {
+      console.error('❌ Socket not connected, cannot start interview');
     }
   }
 

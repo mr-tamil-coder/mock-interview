@@ -92,6 +92,7 @@ export const useInterview = () => {
     try {
       setLoading(true);
       setError(null);
+      console.log('🚀 Starting interview with data:', interviewData);
 
       // Create interview record
       const response = await apiService.createInterview(interviewData);
@@ -108,6 +109,7 @@ export const useInterview = () => {
       socketService.setCurrentInterview(interview._id);
 
       // Start AI interview
+      console.log('🤖 Sending start-interview event');
       socketService.startInterview({
         interviewId: interview._id,
         userProfile: {
@@ -120,6 +122,7 @@ export const useInterview = () => {
 
       return { success: true, interview };
     } catch (error) {
+      console.error('❌ Interview start error:', error);
       const message = error.response?.data?.message || 'Failed to start interview';
       setError(message);
       return { success: false, error: message };

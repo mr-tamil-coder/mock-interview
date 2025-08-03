@@ -61,7 +61,7 @@ function InterviewRoom({ onEndInterview }) {
   const screenStreamRef = useRef(null)
 
   useEffect(() => {
-    if (!interviewStarted) {
+    if (!interviewStarted && !loading) {
       initializeInterview()
     }
     startCamera()
@@ -77,9 +77,10 @@ function InterviewRoom({ onEndInterview }) {
       stopScreenShare()
       stopScreenMonitoring()
     }
-  }, [])
+  }, [interviewStarted, loading])
 
   const initializeInterview = async () => {
+    console.log('🎬 Initializing interview...');
     const result = await startInterview({
       type: 'dsa',
       difficulty: 'medium',
@@ -88,6 +89,7 @@ function InterviewRoom({ onEndInterview }) {
     
     if (!result.success) {
       console.error('Failed to start interview:', result.error)
+      setError(result.error)
     }
   }
 

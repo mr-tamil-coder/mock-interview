@@ -27,6 +27,8 @@ class AIService {
   async startInterview(data) {
     const { difficulty, topic, userProfile, interviewId } = data;
     
+    console.log('🤖 AI Service: Starting interview with data:', { difficulty, topic, interviewId });
+    
     // Initialize interview context
     this.interviewContexts.set(interviewId, {
       difficulty,
@@ -40,6 +42,22 @@ class AIService {
       startTime: new Date(),
       currentPhase: 'introduction'
     });
+
+    // Fallback response if Gemini API is not available
+    if (!process.env.GEMINI_API_KEY) {
+      console.warn('⚠️  Using fallback AI response (no Gemini API key)');
+      const fallbackQuestion = this.getDefaultDSAQuestion(difficulty, topic);
+      const context = this.interviewContexts.get(interviewId);
+      context.questionsAsked.push(fallbackQuestion);
+      context.currentPhase = 'problem_solving';
+      
+      return {
+        message: `Hello! I'm your AI interviewer today. I'm excited to work with you on some ${difficulty} level ${topic} problems. Let's start with your first coding challenge. Take your time to understand the problem and think through your approach.`,
+        audio: null,
+        question: fallbackQuestion,
+        interviewPhase: 'introduction'
+      };
+    }
 
     const prompt = `You are an experienced technical interviewer conducting a ${difficulty} level Data Structures and Algorithms interview focusing on ${topic}.
 
@@ -81,6 +99,7 @@ Keep the tone conversational and supportive while maintaining interview professi
       context.questionsAsked.push(question);
       context.currentPhase = 'problem_solving';
 
+      console.log('✅ AI Service: Interview started successfully');
       return {
         message,
         audio,
@@ -89,7 +108,19 @@ Keep the tone conversational and supportive while maintaining interview professi
       };
     } catch (error) {
       console.error('AI Service Error:', error);
-      throw new Error('Failed to start interview with AI');
+      
+      // Fallback response on error
+      const fallbackQuestion = this.getDefaultDSAQuestion(difficulty, topic);
+      const context = this.interviewContexts.get(interviewId);
+      context.questionsAsked.push(fallbackQuestion);
+      context.currentPhase = 'problem_solving';
+      
+      return {
+        message: `Hello! I'm your AI interviewer today. I'm excited to work with you on some ${difficulty} level ${topic} problems. Let's start with your first coding challenge.`,
+        audio: null,
+        question: fallbackQuestion,
+        interviewPhase: 'introduction'
+      };
     }
   }
 

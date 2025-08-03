@@ -17,6 +17,11 @@ import AIService from './services/aiService.js';
 
 dotenv.config();
 
+// Validate required environment variables
+if (!process.env.GEMINI_API_KEY) {
+  console.warn('⚠️  GEMINI_API_KEY not found. Using fallback responses.');
+}
+
 const app = express();
 const server = createServer(app);
 const io = new Server(server, {
@@ -79,7 +84,10 @@ io.on('connection', (socket) => {
   socket.on('start-interview', async (data) => {
     try {
       const aiService = new AIService();
-      const response = await aiService.startInterview(data);
+      const response = await aiService.startInterview({
+        ...data,
+        userId: socket.userId
+      });
       
       socket.emit('ai-response', {
         type: 'start',
@@ -87,7 +95,10 @@ io.on('connection', (socket) => {
         audio: response.audio,
         question: response.question
       });
+      
+      console.log(`✅ Interview started for user ${socket.userId}`);
     } catch (error) {
+      console.error('Start interview error:', error);
       socket.emit('error', { message: 'Failed to start interview' });
     }
   });
