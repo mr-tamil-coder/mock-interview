@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
-import SpeechRecognition, { useSpeechRecognition } from 'react-speech-recognition'
 import { useAuth } from '../hooks/useAuth'
 import { useInterview } from '../hooks/useInterview'
-import voiceService from '../services/voiceService'
+import VapiVoiceInterface from './VapiVoiceInterface'
+import CodeEditor from './CodeEditor'
 import { 
   Camera, 
   CameraOff, 
@@ -13,8 +13,6 @@ import {
   Monitor,
   MonitorOff,
   AlertTriangle,
-  Play,
-  RotateCcw,
   Send,
   MessageCircle
 } from 'lucide-react'
@@ -55,23 +53,11 @@ function InterviewRoom({ onEndInterview }) {
   const [screenAnalysis, setScreenAnalysis] = useState(null)
   const [suspiciousActivity, setSuspiciousActivity] = useState([])
   const [newMessage, setNewMessage] = useState('')
-  const [output, setOutput] = useState('')
-  const [testResults, setTestResults] = useState([])
-  const [isVoiceRecording, setIsVoiceRecording] = useState(false)
-  const [voiceTranscript, setVoiceTranscript] = useState('')
-  const [aiSpeaking, setAiSpeaking] = useState(false)
+  const [voiceInteractions, setVoiceInteractions] = useState([])
   
   const videoRef = useRef(null)
   const streamRef = useRef(null)
   const screenStreamRef = useRef(null)
-  
-  // Speech recognition hook
-  const {
-    transcript,
-    listening,
-    resetTranscript,
-    browserSupportsSpeechRecognition
-  } = useSpeechRecognition()
 
   useEffect(() => {
     if (!interviewStarted && !loading) {
@@ -89,7 +75,6 @@ function InterviewRoom({ onEndInterview }) {
       stopCamera()
       stopScreenShare()
       stopScreenMonitoring()
-      voiceService.cleanup()
     }
   }, [interviewStarted, loading])
 
@@ -233,114 +218,18 @@ function InterviewRoom({ onEndInterview }) {
     }
   }
 
-  const handleVoiceToggle = () => {
-    if (isVoiceRecording) {
-      stopVoiceRecording()
-    } else {
-      startVoiceRecording()
-    }
-  }
-  
-  const startVoiceRecording = async () => {
-    if (!browserSupportsSpeechRecognition) {
-      alert('Speech recognition not supported in this browser')
-      return
-    }
+  // Handle voice interactions from Vapi
+  const handleVoiceInteraction = (interaction) => {
+    setVoiceInteractions(prev => [...prev, interaction])
     
-    try {
-      resetTranscript()
-      await SpeechRecognition.startListening({ continuous: true, language: 'en-US' })
-      setIsVoiceRecording(true)
-      console.log('🎤 Voice recording started')
-    } catch (error) {
-      console.error('Failed to start voice recording:', error)
+    // Add to chat messages for display
+    if (interaction.role === 'user') {
+      sendChatMessage(interaction.content)
     }
-  }
-  
-  const stopVoiceRecording = async () => {
-    try {
-      SpeechRecognition.stopListening()
-      setIsVoiceRecording(false)
-      
-      if (transcript.trim()) {
-        console.log('Voice transcript:', transcript)
-        
-        // Send to AI for processing
-        setAiSpeaking(true)
-        sendChatMessage(transcript)
-        
-        // Generate AI response and speak it
-        setTimeout(async () => {
-          const aiResponse = generateAIResponse(transcript)
-          
-          // Use browser text-to-speech
-          try {
-            await voiceService.speakText(aiResponse, { rate: 0.9, pitch: 1.0 })
-          } catch (error) {
-            console.error('Text-to-speech error:', error)
-          }
-          
-          setAiSpeaking(false)
-        }, 1000)
-        
-        resetTranscript()
-      }
-    } catch (error) {
-      console.error('Failed to stop voice recording:', error)
-      setIsVoiceRecording(false)
-    }
-  }
-  
-  const generateAIResponse = (userInput) => {
-    const responses = [
-      "That's a good approach! Can you explain the time complexity of your solution?",
-      "Interesting thinking! Have you considered any edge cases for this problem?",
-      "Great explanation! Now let's implement this step by step in your code.",
-      "Good observation! What data structure would be most efficient here?",
-      "Excellent! Can you walk me through how this algorithm works with an example?"
-    ]
-    
-    // Simple keyword-based responses
-    if (userInput.toLowerCase().includes('stuck') || userInput.toLowerCase().includes('help')) {
-      return "No worries! Let me give you a hint. Think about what data structure could help you store and retrieve information efficiently."
-    }
-    
-    if (userInput.toLowerCase().includes('time complexity') || userInput.toLowerCase().includes('big o')) {
-      return "Great question about complexity! For this problem, we want to aim for O(n) time complexity. Can you think of how to achieve that?"
-    }
-    
-    if (userInput.toLowerCase().includes('array') || userInput.toLowerCase().includes('list')) {
-      return "Good! Arrays are indeed useful here. Consider using techniques like two pointers or hash maps to optimize your solution."
-    }
-    
-    return responses[Math.floor(Math.random() * responses.length)]
   }
 
   const handleCodeChange = (e) => {
     setCode(e.target.value)
-  }
-
-  const runCode = async () => {
-    setOutput('Running code...')
-    
-    setTimeout(() => {
-      const mockResults = [
-        { id: 1, passed: true, input: 'Example 1', expected: 'Expected 1', actual: 'Expected 1' },
-        { id: 2, passed: true, input: 'Example 2', expected: 'Expected 2', actual: 'Expected 2' },
-        { id: 3, passed: false, input: 'Example 3', expected: 'Expected 3', actual: 'Different' }
-      ]
-      setTestResults(mockResults)
-      
-      const passedCount = mockResults.filter(test => test.passed).length
-      setOutput(`Test Results: ${passedCount}/${mockResults.length} passed\n\n${passedCount === mockResults.length ? 'All tests passed! ✓' : 'Some tests failed. Check your logic.'}`)
-    }, 2000)
-  }
-
-  const resetCode = () => {
-    const starterCode = currentQuestion?.starterCode?.javascript || '// Write your solution here\nfunction solution(params) {\n    // Your code here\n    \n}'
-    setCode(starterCode)
-    setOutput('')
-    setTestResults([])
   }
 
   const handleSendMessage = (e) => {
@@ -464,7 +353,7 @@ function InterviewRoom({ onEndInterview }) {
               Question {currentQuestionIndex + 1} of {Math.max(questions.length, 1)}
             </span>
             <span className="difficulty-badge">
-              MEDIUM
+              {currentQuestion?.difficulty?.toUpperCase() || 'MEDIUM'}
             </span>
           </div>
         </div>
@@ -524,60 +413,16 @@ function InterviewRoom({ onEndInterview }) {
             )}
           </div>
           
-          {/* Voice Controls */}
-          <div className="voice-controls">
-            <div className="voice-status">
-              {aiSpeaking && (
-                <div className="ai-speaking">
-                  <span>AI is speaking...</span>
-                  <div className="speaking-animation">
-                    <div className="dot"></div>
-                    <div className="dot"></div>
-                    <div className="dot"></div>
-                  </div>
-                </div>
-              )}
-              
-              {isVoiceRecording && (
-                <div className="recording-status">
-                  <div className="recording-dot"></div>
-                  <span>Listening...</span>
-                </div>
-              )}
-              
-              {transcript && (
-                <div className="live-transcript">
-                  <span>You said: "{transcript}"</span>
-                </div>
-              )}
-              
-              {!isVoiceRecording && !aiSpeaking && !transcript && (
-                <div className="voice-ready">
-                  <span>Ready for voice input</span>
-                </div>
-              )}
-            </div>
-
-            <button
-              className={`voice-button ${isVoiceRecording ? 'recording' : ''} ${aiSpeaking ? 'disabled' : ''}`}
-              onClick={handleVoiceToggle}
-              disabled={aiSpeaking}
-              title={isVoiceRecording ? 'Stop recording' : 'Start voice input'}
-            >
-              {isVoiceRecording ? <MicOff size={24} /> : <Mic size={24} />}
-            </button>
-
-            <div className="voice-instructions">
-              <p>
-                {aiSpeaking 
-                  ? 'AI is speaking, please wait...'
-                  : isVoiceRecording 
-                    ? 'Speak now, click to stop'
-                    : 'Click to start voice input'
-                }
-              </p>
-            </div>
-          </div>
+          {/* Vapi Voice Interface */}
+          <VapiVoiceInterface 
+            interviewContext={{
+              difficulty: currentQuestion?.difficulty || 'medium',
+              topic: currentQuestion?.topic || 'arrays',
+              phase: 'problem_solving',
+              currentQuestion: currentQuestion
+            }}
+            onVoiceInteraction={handleVoiceInteraction}
+          />
         </div>
 
         <div className="coding-section">
@@ -651,7 +496,7 @@ function InterviewRoom({ onEndInterview }) {
             code={code}
             onCodeChange={setCode}
             question={currentQuestion}
-            evaluation={null}
+            evaluation={currentQuestion?.evaluation}
             loading={loading}
           />
         </div>
