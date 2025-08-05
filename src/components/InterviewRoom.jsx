@@ -1,24 +1,24 @@
-import { useState, useEffect, useRef } from 'react'
-import { useAuth } from '../hooks/useAuth'
-import { useInterview } from '../hooks/useInterview'
-import VapiVoiceInterface from './VapiVoiceInterface'
-import CodeEditor from './CodeEditor'
-import { 
-  Camera, 
-  CameraOff, 
-  Mic, 
-  MicOff, 
+import { useState, useEffect, useRef } from "react";
+import { useAuth } from "../hooks/useAuth";
+import { useInterview } from "../hooks/useInterview";
+import VapiVoiceInterface from "./VapiVoiceInterface";
+import CodeEditor from "./CodeEditor";
+import {
+  Camera,
+  CameraOff,
+  Mic,
+  MicOff,
   Clock,
   CheckCircle,
   Monitor,
   MonitorOff,
   AlertTriangle,
   Send,
-  MessageCircle
-} from 'lucide-react'
+  MessageCircle,
+} from "lucide-react";
 
 function InterviewRoom({ onEndInterview }) {
-  const { user } = useAuth()
+  const { user } = useAuth();
   const {
     currentInterview,
     currentQuestion,
@@ -42,215 +42,234 @@ function InterviewRoom({ onEndInterview }) {
     hasNextQuestion,
     canSubmitCode,
     isInterviewActive,
-    clearError
-  } = useInterview()
+    clearError,
+    // Assuming setError is available from the hook to be used in initializeInterview
+    setError,
+  } = useInterview();
 
   // Camera and screen sharing
-  const [isCameraOn, setIsCameraOn] = useState(true)
-  const [isMicOn, setIsMicOn] = useState(true)
-  const [isScreenSharing, setIsScreenSharing] = useState(false)
-  const [timeElapsed, setTimeElapsed] = useState(0)
-  const [screenAnalysis, setScreenAnalysis] = useState(null)
-  const [suspiciousActivity, setSuspiciousActivity] = useState([])
-  const [newMessage, setNewMessage] = useState('')
-  const [voiceInteractions, setVoiceInteractions] = useState([])
-  
-  const videoRef = useRef(null)
-  const streamRef = useRef(null)
-  const screenStreamRef = useRef(null)
+  const [isCameraOn, setIsCameraOn] = useState(true);
+  const [isMicOn, setIsMicOn] = useState(true);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [timeElapsed, setTimeElapsed] = useState(0);
+  const [screenAnalysis, setScreenAnalysis] = useState(null);
+  const [suspiciousActivity, setSuspiciousActivity] = useState([]);
+  const [newMessage, setNewMessage] = useState("");
+  const [voiceInteractions, setVoiceInteractions] = useState([]);
 
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const screenStreamRef = useRef(null);
+
+  // --- FIX: THE DEPENDENCY ARRAY IS NOW EMPTY ---
+  // This ensures all the setup logic inside this effect runs ONLY ONCE when the component first mounts.
   useEffect(() => {
-    if (!interviewStarted && !loading) {
-      initializeInterview()
-    }
-    startCamera()
-    startScreenMonitoring()
+    // We no longer need the `if` condition because this effect itself is the "run once" guard.
+    initializeInterview();
+    startCamera();
+    startScreenMonitoring();
 
     const timer = setInterval(() => {
-      setTimeElapsed(prev => prev + 1)
-    }, 1000)
+      setTimeElapsed((prev) => prev + 1);
+    }, 1000);
 
+    // This cleanup function will run only when the component unmounts.
     return () => {
-      clearInterval(timer)
-      stopCamera()
-      stopScreenShare()
-      stopScreenMonitoring()
-    }
-  }, [interviewStarted, loading])
+      clearInterval(timer);
+      stopCamera();
+      stopScreenShare();
+      stopScreenMonitoring();
+    };
+  }, []); // <--- THE FIX IS HERE!
 
   const initializeInterview = async () => {
-    console.log('🎬 Initializing interview...');
+    console.log("🎬 Initializing interview...");
     const result = await startInterview({
-      type: 'dsa',
-      difficulty: 'medium',
-      topic: 'arrays'
-    })
-    
-    if (!result.success) {
-      console.error('Failed to start interview:', result.error)
-      setError(result.error)
+      type: "dsa",
+      difficulty: "medium",
+      topic: "arrays",
+    });
+
+    // The useInterview hook should handle loading/started state.
+    // This function now just triggers the process.
+    if (result && !result.success) {
+      console.error("Failed to start interview:", result.error);
+      if (setError) setError(result.error);
     }
-  }
+  };
 
   const startScreenMonitoring = () => {
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-    document.addEventListener('copy', handleCopyEvent)
-    document.addEventListener('paste', handlePasteEvent)
-  }
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    document.addEventListener("copy", handleCopyEvent);
+    document.addEventListener("paste", handlePasteEvent);
+  };
 
   const stopScreenMonitoring = () => {
-    document.removeEventListener('visibilitychange', handleVisibilityChange)
-    document.removeEventListener('copy', handleCopyEvent)
-    document.removeEventListener('paste', handlePasteEvent)
-  }
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+    document.removeEventListener("copy", handleCopyEvent);
+    document.removeEventListener("paste", handlePasteEvent);
+  };
 
   const handleVisibilityChange = () => {
     if (document.hidden) {
       const activity = {
-        type: 'tab_switch',
+        type: "tab_switch",
         timestamp: new Date(),
-        description: 'User switched away from interview tab'
-      }
-      setSuspiciousActivity(prev => [...prev, activity])
+        description: "User switched away from interview tab",
+      };
+      setSuspiciousActivity((prev) => [...prev, activity]);
       setScreenAnalysis({
         suspicious: true,
-        activities: ['tab_switch_detected'],
-        recommendations: ['Stay focused on the interview tab', 'Avoid switching to other applications']
-      })
+        activities: ["tab_switch_detected"],
+        recommendations: [
+          "Stay focused on the interview tab",
+          "Avoid switching to other applications",
+        ],
+      });
     }
-  }
+  };
 
   const handleCopyEvent = (e) => {
     const activity = {
-      type: 'copy_detected',
+      type: "copy_detected",
       timestamp: new Date(),
-      description: 'Copy operation detected'
-    }
-    setSuspiciousActivity(prev => [...prev, activity])
-  }
+      description: "Copy operation detected",
+    };
+    setSuspiciousActivity((prev) => [...prev, activity]);
+  };
 
   const handlePasteEvent = (e) => {
     const activity = {
-      type: 'paste_detected',
+      type: "paste_detected",
       timestamp: new Date(),
-      description: 'Paste operation detected'
-    }
-    setSuspiciousActivity(prev => [...prev, activity])
+      description: "Paste operation detected",
+    };
+    setSuspiciousActivity((prev) => [...prev, activity]);
     setScreenAnalysis({
       suspicious: true,
-      activities: ['paste_detected'],
-      recommendations: ['Write code from scratch', 'Avoid copying from external sources']
-    })
-  }
+      activities: ["paste_detected"],
+      recommendations: [
+        "Write code from scratch",
+        "Avoid copying from external sources",
+      ],
+    });
+  };
 
   const startCamera = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: true, 
-        audio: true 
-      })
-      streamRef.current = stream
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true,
+      });
+      streamRef.current = stream;
       if (videoRef.current) {
-        videoRef.current.srcObject = stream
+        videoRef.current.srcObject = stream;
       }
     } catch (error) {
-      console.error('Error accessing camera:', error)
+      console.error("Error accessing camera:", error);
     }
-  }
+  };
 
   const stopCamera = () => {
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop())
+      streamRef.current.getTracks().forEach((track) => track.stop());
     }
-  }
+  };
 
   const startScreenShare = async () => {
     try {
       const screenStream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
-        audio: false
-      })
-      
-      screenStreamRef.current = screenStream
-      setIsScreenSharing(true)
-      
-      screenStream.getVideoTracks()[0].addEventListener('ended', () => {
-        setIsScreenSharing(false)
-      })
-      
+        audio: false,
+      });
+
+      screenStreamRef.current = screenStream;
+      setIsScreenSharing(true);
+
+      screenStream.getVideoTracks()[0].addEventListener("ended", () => {
+        setIsScreenSharing(false);
+      });
     } catch (error) {
-      console.error('Error starting screen share:', error)
+      console.error("Error starting screen share:", error);
     }
-  }
+  };
 
   const stopScreenShare = () => {
     if (screenStreamRef.current) {
-      screenStreamRef.current.getTracks().forEach(track => track.stop())
-      setIsScreenSharing(false)
+      screenStreamRef.current.getTracks().forEach((track) => track.stop());
+      setIsScreenSharing(false);
     }
-  }
+  };
 
   const toggleCamera = () => {
-    setIsCameraOn(!isCameraOn)
+    setIsCameraOn(!isCameraOn);
     if (streamRef.current) {
-      const videoTrack = streamRef.current.getVideoTracks()[0]
+      const videoTrack = streamRef.current.getVideoTracks()[0];
       if (videoTrack) {
-        videoTrack.enabled = !isCameraOn
+        videoTrack.enabled = !isCameraOn;
       }
     }
-  }
+  };
 
   const toggleMic = () => {
-    setIsMicOn(!isMicOn)
+    setIsMicOn(!isMicOn);
     if (streamRef.current) {
-      const audioTrack = streamRef.current.getAudioTracks()[0]
+      const audioTrack = streamRef.current.getAudioTracks()[0];
       if (audioTrack) {
-        audioTrack.enabled = !isMicOn
+        audioTrack.enabled = !isMicOn;
       }
     }
-  }
+  };
 
   const toggleScreenShare = () => {
     if (isScreenSharing) {
-      stopScreenShare()
+      stopScreenShare();
     } else {
-      startScreenShare()
+      startScreenShare();
     }
-  }
+  };
 
   // Handle voice interactions from Vapi
   const handleVoiceInteraction = (interaction) => {
-    setVoiceInteractions(prev => [...prev, interaction])
-    
+    setVoiceInteractions((prev) => [...prev, interaction]);
+
     // Add to chat messages for display
-    if (interaction.role === 'user') {
-      sendChatMessage(interaction.content)
+    if (interaction.role === "user") {
+      sendChatMessage(interaction.content);
     }
-  }
+  };
 
   const handleCodeChange = (e) => {
-    setCode(e.target.value)
-  }
+    setCode(e.target.value);
+  };
 
   const handleSendMessage = (e) => {
-    e.preventDefault()
-    if (!newMessage.trim()) return
+    e.preventDefault();
+    if (!newMessage.trim()) return;
 
-    sendChatMessage(newMessage)
-    setNewMessage('')
-  }
+    sendChatMessage(newMessage);
+    setNewMessage("");
+  };
 
   const formatTime = (seconds) => {
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
-  }
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs
+      .toString()
+      .padStart(2, "0")}`;
+  };
 
   const formatMessageTime = (date) => {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  }
+    if (!(date instanceof Date) || isNaN(date)) {
+      return new Date().toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    }
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  };
 
-  if (currentInterview?.status === 'completed') {
+  if (currentInterview?.status === "completed") {
     return (
       <div className="interview-summary">
         <div className="container">
@@ -263,7 +282,15 @@ function InterviewRoom({ onEndInterview }) {
 
             <div className="summary-stats">
               <div className="summary-stat">
-                <span className="stat-number">{Math.round(questions.reduce((acc, q) => acc + (q.evaluation?.scores?.overall || 0), 0) / Math.max(questions.length, 1))}%</span>
+                <span className="stat-number">
+                  {Math.round(
+                    questions.reduce(
+                      (acc, q) => acc + (q.evaluation?.scores?.overall || 0),
+                      0
+                    ) / Math.max(questions.length, 1)
+                  )}
+                  %
+                </span>
                 <span className="stat-label">Overall Score</span>
               </div>
               <div className="summary-stat">
@@ -271,7 +298,10 @@ function InterviewRoom({ onEndInterview }) {
                 <span className="stat-label">Duration</span>
               </div>
               <div className="summary-stat">
-                <span className="stat-number">{questions.filter(q => q.completed).length}/{questions.length}</span>
+                <span className="stat-number">
+                  {questions.filter((q) => q.completed).length}/
+                  {questions.length}
+                </span>
                 <span className="stat-label">Problems Solved</span>
               </div>
             </div>
@@ -279,33 +309,48 @@ function InterviewRoom({ onEndInterview }) {
             <div className="summary-feedback">
               <h3>AI Feedback</h3>
               <div className="feedback-points">
-                {['Good problem-solving approach', 'Clear communication', 'Systematic thinking'].map((strength, index) => (
+                {[
+                  "Good problem-solving approach",
+                  "Clear communication",
+                  "Systematic thinking",
+                ].map((strength, index) => (
                   <div key={index} className="feedback-point positive">
                     <CheckCircle size={16} />
                     <span>{strength}</span>
                   </div>
                 ))}
-                {['Consider edge cases', 'Optimize time complexity', 'Practice more'].map((improvement, index) => (
+                {[
+                  "Consider edge cases",
+                  "Optimize time complexity",
+                  "Practice more",
+                ].map((improvement, index) => (
                   <div key={index + 10} className="feedback-point improvement">
                     <span>{improvement}</span>
                   </div>
                 ))}
               </div>
-              
+
               {suspiciousActivity.length > 0 && (
                 <div className="screen-analysis">
                   <h4>Screen Activity Analysis</h4>
-                  <p>Your screen activity was monitored for interview integrity.</p>
+                  <p>
+                    Your screen activity was monitored for interview integrity.
+                  </p>
                   <div className="activity-log">
                     {suspiciousActivity.map((activity, index) => (
                       <div key={index} className="activity-item">
-                        <span>{activity.type}: {activity.description}</span>
+                        <span>
+                          {activity.type}: {activity.description}
+                        </span>
                       </div>
                     ))}
                   </div>
                   {suspiciousActivity.length > 2 && (
                     <div className="warning">
-                      <p>⚠️ Some activities may need attention in future interviews.</p>
+                      <p>
+                        ⚠️ Some activities may need attention in future
+                        interviews.
+                      </p>
                     </div>
                   )}
                 </div>
@@ -316,14 +361,12 @@ function InterviewRoom({ onEndInterview }) {
               <button className="btn btn-primary" onClick={onEndInterview}>
                 Back to Dashboard
               </button>
-              <button className="btn btn-secondary">
-                Download Report
-              </button>
+              <button className="btn btn-secondary">Download Report</button>
             </div>
           </div>
         </div>
       </div>
-    )
+    );
   }
 
   if (!interviewStarted || loading) {
@@ -331,12 +374,16 @@ function InterviewRoom({ onEndInterview }) {
       <div className="interview-loading">
         <div className="container">
           <div className="loading-message">
-            <h2>{loading ? 'Preparing your interview...' : 'Starting AI Interview'}</h2>
+            <h2>
+              {loading
+                ? "Preparing your interview..."
+                : "Starting AI Interview"}
+            </h2>
             <p>Our AI interviewer is getting ready to meet you!</p>
           </div>
         </div>
       </div>
-    )
+    );
   }
 
   return (
@@ -350,34 +397,35 @@ function InterviewRoom({ onEndInterview }) {
               {formatTime(timeElapsed)}
             </span>
             <span className="question-counter">
-              Question {currentQuestionIndex + 1} of {Math.max(questions.length, 1)}
+              Question {currentQuestionIndex + 1} of{" "}
+              {Math.max(questions.length, 1)}
             </span>
             <span className="difficulty-badge">
-              {currentQuestion?.difficulty?.toUpperCase() || 'MEDIUM'}
+              {currentQuestion?.difficulty?.toUpperCase() || "MEDIUM"}
             </span>
           </div>
         </div>
-        
+
         <div className="interview-controls">
-          <button 
-            className={`control-btn ${isCameraOn ? 'active' : 'inactive'}`}
+          <button
+            className={`control-btn ${isCameraOn ? "active" : "inactive"}`}
             onClick={toggleCamera}
           >
             {isCameraOn ? <Camera size={20} /> : <CameraOff size={20} />}
           </button>
-          <button 
-            className={`control-btn ${isMicOn ? 'active' : 'inactive'}`}
+          <button
+            className={`control-btn ${isMicOn ? "active" : "inactive"}`}
             onClick={toggleMic}
           >
             {isMicOn ? <Mic size={20} /> : <MicOff size={20} />}
           </button>
-          <button 
-            className={`control-btn ${isScreenSharing ? 'active' : 'inactive'}`}
+          <button
+            className={`control-btn ${isScreenSharing ? "active" : "inactive"}`}
             onClick={toggleScreenShare}
             title="Toggle Screen Share"
           >
             {isScreenSharing ? <Monitor size={20} /> : <MonitorOff size={20} />}
-            {isScreenSharing ? 'Stop Share' : 'Share Screen'}
+            {isScreenSharing ? "Stop Share" : "Share Screen"}
           </button>
         </div>
       </div>
@@ -392,10 +440,13 @@ function InterviewRoom({ onEndInterview }) {
       {screenAnalysis?.suspicious && (
         <div className="warning-banner">
           <AlertTriangle size={16} />
-          <p>Please focus on the interview. Avoid switching tabs or external resources.</p>
+          <p>
+            Please focus on the interview. Avoid switching tabs or external
+            resources.
+          </p>
         </div>
       )}
-      
+
       <div className="interview-content">
         <div className="video-section">
           <div className="video-container">
@@ -403,7 +454,7 @@ function InterviewRoom({ onEndInterview }) {
               ref={videoRef}
               autoPlay
               muted
-              className={`interview-video ${!isCameraOn ? 'hidden' : ''}`}
+              className={`interview-video ${!isCameraOn ? "hidden" : ""}`}
             />
             {!isCameraOn && (
               <div className="video-placeholder">
@@ -412,14 +463,14 @@ function InterviewRoom({ onEndInterview }) {
               </div>
             )}
           </div>
-          
+
           {/* Vapi Voice Interface */}
-          <VapiVoiceInterface 
+          <VapiVoiceInterface
             interviewContext={{
-              difficulty: currentQuestion?.difficulty || 'medium',
-              topic: currentQuestion?.topic || 'arrays',
-              phase: 'problem_solving',
-              currentQuestion: currentQuestion
+              difficulty: currentQuestion?.difficulty || "medium",
+              topic: currentQuestion?.topic || "arrays",
+              phase: "problem_solving",
+              currentQuestion: currentQuestion,
             }}
             onVoiceInteraction={handleVoiceInteraction}
           />
@@ -428,15 +479,22 @@ function InterviewRoom({ onEndInterview }) {
         <div className="coding-section">
           <div className="question-panel">
             <div className="question-header">
-              <h3>{currentQuestion?.title || 'Loading Question...'}</h3>
-              <span className={`difficulty ${currentQuestion?.difficulty?.toLowerCase() || 'medium'}`}>
-                {currentQuestion?.difficulty || 'Medium'}
+              <h3>{currentQuestion?.title || "Loading Question..."}</h3>
+              <span
+                className={`difficulty ${
+                  currentQuestion?.difficulty?.toLowerCase() || "medium"
+                }`}
+              >
+                {currentQuestion?.difficulty || "Medium"}
               </span>
             </div>
-            
+
             <div className="question-content">
-              <p>{currentQuestion?.description || 'Loading problem description...'}</p>
-              
+              <p>
+                {currentQuestion?.description ||
+                  "Loading problem description..."}
+              </p>
+
               {currentQuestion?.examples && (
                 <div className="example">
                   <strong>Example:</strong>
@@ -444,12 +502,13 @@ function InterviewRoom({ onEndInterview }) {
                     <pre key={index}>
                       Input: {example.input}
                       Output: {example.output}
-                      {example.explanation && `\nExplanation: ${example.explanation}`}
+                      {example.explanation &&
+                        `\nExplanation: ${example.explanation}`}
                     </pre>
                   ))}
                 </div>
               )}
-              
+
               {currentQuestion?.hints && (
                 <div className="hints">
                   <strong>Hints:</strong>
@@ -463,26 +522,26 @@ function InterviewRoom({ onEndInterview }) {
             </div>
 
             <div className="question-actions">
-              <button 
-                className="btn btn-success" 
+              <button
+                className="btn btn-success"
                 onClick={submitCode}
                 disabled={!canSubmitCode}
               >
-                {loading ? 'Evaluating...' : 'Submit Code'}
+                {loading ? "Evaluating..." : "Submit Code"}
               </button>
-              
+
               {hasNextQuestion && (
-                <button 
-                  className="btn btn-primary" 
+                <button
+                  className="btn btn-primary"
                   onClick={nextQuestion}
                   disabled={loading}
                 >
                   Next Question
                 </button>
               )}
-              
-              <button 
-                className="btn btn-secondary" 
+
+              <button
+                className="btn btn-secondary"
                 onClick={endInterview}
                 disabled={loading}
               >
@@ -492,7 +551,7 @@ function InterviewRoom({ onEndInterview }) {
           </div>
 
           {/* Code Editor */}
-          <CodeEditor 
+          <CodeEditor
             code={code}
             onCodeChange={setCode}
             question={currentQuestion}
@@ -509,14 +568,16 @@ function InterviewRoom({ onEndInterview }) {
           </div>
 
           <div className="chat-messages">
-            {chatMessages.map(message => (
+            {chatMessages.map((message) => (
               <div key={message.id} className={`message ${message.sender}`}>
                 <div className="message-content">
                   <div className="message-text">{message.message}</div>
-                  <div className="message-time">{formatMessageTime(message.timestamp)}</div>
+                  <div className="message-time">
+                    {formatMessageTime(message.timestamp)}
+                  </div>
                 </div>
                 <div className="message-avatar">
-                  {message.sender === 'ai' ? 'AI' : 'You'}
+                  {message.sender === "ai" ? "AI" : "You"}
                 </div>
               </div>
             ))}
@@ -530,14 +591,18 @@ function InterviewRoom({ onEndInterview }) {
               placeholder="Ask a question or explain your approach..."
               className="chat-input-field"
             />
-            <button type="submit" className="chat-send-btn" disabled={!newMessage.trim()}>
+            <button
+              type="submit"
+              className="chat-send-btn"
+              disabled={!newMessage.trim()}
+            >
               <Send size={16} />
             </button>
           </form>
         </div>
       </div>
     </div>
-  )
+  );
 }
 
-export default InterviewRoom
+export default InterviewRoom;

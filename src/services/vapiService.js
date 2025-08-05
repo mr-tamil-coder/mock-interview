@@ -1,63 +1,65 @@
-import Vapi from '@vapi-ai/web-sdk';
+import Vapi from "@vapi-ai/web"; // <-- CORRECTED THIS LINE
 
 class VapiService {
   constructor() {
     this.vapi = null;
     this.isConnected = false;
     this.isCallActive = false;
-    this.currentTranscript = '';
+    this.currentTranscript = "";
     this.eventHandlers = new Map();
-    this.apiKey = 'your-vapi-public-key'; // Replace with your Vapi public key
+    this.apiKey = "your-vapi-public-key"; // Replace with your Vapi public key
   }
 
   // Initialize Vapi with your assistant configuration
   async initialize() {
     try {
       this.vapi = new Vapi(this.apiKey);
-      
+
       // Set up event listeners
-      this.vapi.on('call-start', () => {
-        console.log('✅ Vapi call started');
+      this.vapi.on("call-start", () => {
+        console.log("✅ Vapi call started");
         this.isCallActive = true;
-        this.emit('call-start');
+        this.emit("call-start");
       });
 
-      this.vapi.on('call-end', () => {
-        console.log('📞 Vapi call ended');
+      this.vapi.on("call-end", () => {
+        console.log("📞 Vapi call ended");
         this.isCallActive = false;
-        this.emit('call-end');
+        this.emit("call-end");
       });
 
-      this.vapi.on('speech-start', () => {
-        console.log('🎤 User started speaking');
-        this.emit('speech-start');
+      this.vapi.on("speech-start", () => {
+        console.log("🎤 User started speaking");
+        this.emit("speech-start");
       });
 
-      this.vapi.on('speech-end', () => {
-        console.log('🎤 User stopped speaking');
-        this.emit('speech-end');
+      this.vapi.on("speech-end", () => {
+        console.log("🎤 User stopped speaking");
+        this.emit("speech-end");
       });
 
-      this.vapi.on('transcript', (transcript) => {
-        console.log('📝 Transcript:', transcript);
-        this.currentTranscript = transcript.text;
-        this.emit('transcript', transcript);
+      // The 'transcript' event is not standard in the provided docs.
+      // Vapi sends transcripts through the 'message' event.
+      // You might need to adjust this logic based on the message type.
+      this.vapi.on("message", (message) => {
+        console.log("💬 Message received:", message);
+        if (message.type === "transcript" && message.transcript) {
+          console.log("📝 Transcript:", message.transcript);
+          this.currentTranscript = message.transcript;
+          this.emit("transcript", message);
+        }
+        this.emit("message", message);
       });
 
-      this.vapi.on('message', (message) => {
-        console.log('💬 AI Message:', message);
-        this.emit('message', message);
-      });
-
-      this.vapi.on('error', (error) => {
-        console.error('❌ Vapi error:', error);
-        this.emit('error', error);
+      this.vapi.on("error", (error) => {
+        console.error("❌ Vapi error:", error);
+        this.emit("error", error);
       });
 
       this.isConnected = true;
       return true;
     } catch (error) {
-      console.error('Failed to initialize Vapi:', error);
+      console.error("Failed to initialize Vapi:", error);
       return false;
     }
   }
@@ -71,11 +73,11 @@ class VapiService {
     try {
       const defaultAssistant = {
         model: {
-          provider: 'openai',
-          model: 'gpt-3.5-turbo',
+          provider: "openai",
+          model: "gpt-3.5-turbo",
           messages: [
             {
-              role: 'system',
+              role: "system",
               content: `You are an experienced technical interviewer conducting a Data Structures and Algorithms interview. 
 
 Your role:
@@ -86,23 +88,24 @@ Your role:
 5. Encourage good problem-solving practices
 6. Provide constructive feedback
 
-Keep responses conversational, encouraging, and under 100 words. Focus on helping the candidate think through problems rather than giving direct answers.`
-            }
-          ]
+Keep responses conversational, encouraging, and under 100 words. Focus on helping the candidate think through problems rather than giving direct answers.`,
+            },
+          ],
         },
         voice: {
-          provider: 'playht',
-          voiceId: 'jennifer'
+          provider: "playht",
+          voiceId: "jennifer",
         },
-        firstMessage: "Hello! I'm your AI interviewer today. I'm excited to work with you on some data structures and algorithms problems. Are you ready to begin with our first coding challenge?"
+        firstMessage:
+          "Hello! I'm your AI interviewer today. I'm excited to work with you on some data structures and algorithms problems. Are you ready to begin with our first coding challenge?",
       };
 
       const assistant = assistantConfig || defaultAssistant;
-      
+
       await this.vapi.start(assistant);
       return true;
     } catch (error) {
-      console.error('Failed to start Vapi call:', error);
+      console.error("Failed to start Vapi call:", error);
       return false;
     }
   }
@@ -114,7 +117,7 @@ Keep responses conversational, encouraging, and under 100 words. Focus on helpin
         await this.vapi.stop();
         return true;
       } catch (error) {
-        console.error('Failed to end Vapi call:', error);
+        console.error("Failed to end Vapi call:", error);
         return false;
       }
     }
@@ -126,15 +129,15 @@ Keep responses conversational, encouraging, and under 100 words. Focus on helpin
     if (this.vapi && this.isCallActive) {
       try {
         await this.vapi.send({
-          type: 'add-message',
+          type: "add-message",
           message: {
-            role: 'user',
-            content: message
-          }
+            role: "user",
+            content: message,
+          },
         });
         return true;
       } catch (error) {
-        console.error('Failed to send message:', error);
+        console.error("Failed to send message:", error);
         return false;
       }
     }
@@ -161,7 +164,7 @@ Keep responses conversational, encouraging, and under 100 words. Focus on helpin
 
   emit(event, data) {
     if (this.eventHandlers.has(event)) {
-      this.eventHandlers.get(event).forEach(handler => {
+      this.eventHandlers.get(event).forEach((handler) => {
         try {
           handler(data);
         } catch (error) {
@@ -176,7 +179,7 @@ Keep responses conversational, encouraging, and under 100 words. Focus on helpin
     return {
       isConnected: this.isConnected,
       isCallActive: this.isCallActive,
-      currentTranscript: this.currentTranscript
+      currentTranscript: this.currentTranscript,
     };
   }
 
