@@ -14,17 +14,15 @@ import aiRoutes from "./routes/ai.js";
 import userRoutes from "./routes/users.js";
 import { authenticateSocket } from "./middleware/auth.js";
 import AIService from "./services/aiService.js";
-import fs from "fs";
-import path from "path";
 
 dotenv.config();
 
-// --- IMPROVEMENT: Validate required environment variables and exit if missing ---
+// Validate required environment variables
 if (!process.env.GEMINI_API_KEY) {
   console.error(
-    "❌ FATAL ERROR: GEMINI_API_KEY not found in .env file. AI services will not work."
+    "❌ FATAL ERROR: GEMINI_API_KEY not found in .env file."
   );
-  process.exit(1); // Exit the application if the key is missing
+  process.exit(1);
 }
 if (!process.env.MONGODB_URI) {
   console.error("❌ FATAL ERROR: MONGODB_URI not found in .env file.");
@@ -40,18 +38,6 @@ const io = new Server(server, {
   },
 });
 
-// Security and performance middleware
-app.use(helmet());
-app.use(compression());
-app.use(morgan("combined"));
-
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
-});
-app.use("/api/", limiter);
-
 // Middleware
 app.use(
   cors({
@@ -61,12 +47,6 @@ app.use(
 );
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
-
-// Create uploads directory
-const uploadsDir = path.join(process.cwd(), "uploads", "audio");
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
 
 // Routes
 app.use("/api/auth", authRoutes);
@@ -80,15 +60,14 @@ mongoose
   .then(() => console.log("✅ Connected to MongoDB"))
   .catch((err) => console.error("❌ MongoDB connection error:", err));
 
+// Initialize AI Service
+const aiService = new AIService();
+
 // Socket.IO for real-time communication
 io.use(authenticateSocket);
 
 io.on("connection", (socket) => {
   console.log(`👤 User connected: ${socket.userId}`);
-
-  // --- BUG FIX: Create a single AI Service instance per connection ---
-  // This instance will maintain the context of the entire interview for this user.
-  const aiService = new AIService(socket.userId); // Pass userId if your service needs it for context
 
   socket.on("join-interview", (interviewId) => {
     socket.join(`interview-${interviewId}`);
@@ -97,114 +76,115 @@ io.on("connection", (socket) => {
 
   socket.on("start-interview", async (data) => {
     try {
-      // --- BUG FIX: Reuse the existing aiService instance ---
+      console.log(`🚀 Starting interview for user ${socket.userId}:`, data);
       const response = await aiService.startInterview({
         ...data,
-        userId: socket.userId, // Already in constructor, but can be passed again if needed
+        userId: socket.userId,
       });
 
       socket.emit("ai-response", {
         type: "start",
         message: response.message,
-        audio: response.audio,
         question: response.question,
       });
 
       console.log(`✅ Interview started for user ${socket.userId}`);
     } catch (error) {
-      // --- IMPROVEMENT: Better error handling ---
       console.error(
         `❌ Start interview error for user ${socket.userId}:`,
         error.message
       );
-      const isRateLimitError = error.status === 429;
       socket.emit("error", {
-        message: isRateLimitError
-          ? "The AI is receiving too many requests. Please wait a moment."
-          : "Failed to start interview.",
-        isRateLimitError,
+        message: "Failed to start interview: " + error.message,
       });
     }
   });
 
   socket.on("submit-code", async (data) => {
     try {
-      // --- BUG FIX: Reuse the existing aiService instance ---
-      const evaluation = await aiService.evaluateCode(data);
+      console.log(`📝 Code submitted by user ${socket.userId}`);
+      const evaluation = await aiService.evaluateCode({
+        ...data,
+        userId: socket.userId,
+      });
 
       socket.emit("code-evaluation", evaluation);
-
-      socket.to(`interview-${data.interviewId}`).emit("code-submitted", {
-        userId: socket.userId,
-        code: data.code,
-        evaluation,
-      });
+      console.log(`✅ Code evaluated for user ${socket.userId}`);
     } catch (error) {
       console.error(
         `❌ Code evaluation error for user ${socket.userId}:`,
         error.message
       );
-      socket.emit("error", { message: "Failed to evaluate code" });
+      socket.emit("error", { 
+        message: "Failed to evaluate code: " + error.message 
+      });
     }
   });
 
-  socket.on("voice-input", async (audioData) => {
+  socket.on("voice-input", async (data) => {
     try {
-      // --- BUG FIX: Reuse the existing aiService instance ---
-      const response = await aiService.processVoiceInput(audioData);
+      console.log(`🎤 Voice input from user ${socket.userId}`);
+      const response = await aiService.processVoiceInput({
+        ...data,
+        userId: socket.userId,
+      });
 
       socket.emit("ai-voice-response", {
         transcription: response.transcription,
         aiResponse: response.response,
-        audio: response.audio,
+        timestamp: response.timestamp,
       });
     } catch (error) {
       console.error(
         `❌ Voice input error for user ${socket.userId}:`,
         error.message
       );
-      socket.emit("error", { message: "Failed to process voice input" });
+      socket.emit("error", { 
+        message: "Failed to process voice input: " + error.message 
+      });
     }
   });
 
   socket.on("chat-message", async (data) => {
     try {
-      // --- BUG FIX: Reuse the existing aiService instance ---
-      const response = await aiService.processChatMessage(data);
+      console.log(`💬 Chat message from user ${socket.userId}`);
+      const response = await aiService.processChatMessage({
+        ...data,
+        userId: socket.userId,
+      });
       socket.emit("ai-chat-response", response);
     } catch (error) {
       console.error(
         `❌ Chat message error for user ${socket.userId}:`,
         error.message
       );
-      socket.emit("error", { message: "Failed to process chat message" });
+      socket.emit("error", { 
+        message: "Failed to process chat message: " + error.message 
+      });
     }
   });
 
-  // (Assuming screen-share and end-interview follow the same pattern)
-  // ... other event handlers also reusing the same aiService instance ...
-
   socket.on("end-interview", async (data) => {
     try {
-      // --- BUG FIX: Reuse the existing aiService instance ---
-      const summary = await aiService.generateInterviewSummary(data);
+      console.log(`🏁 Ending interview for user ${socket.userId}`);
+      const summary = await aiService.generateInterviewSummary({
+        ...data,
+        userId: socket.userId,
+      });
       socket.emit("interview-summary", summary);
     } catch (error) {
       console.error(
         `❌ Summary generation error for user ${socket.userId}:`,
         error.message
       );
-      socket.emit("error", { message: "Failed to generate summary" });
+      socket.emit("error", { 
+        message: "Failed to generate summary: " + error.message 
+      });
     }
   });
 
   socket.on("disconnect", () => {
     console.log(`👋 User disconnected: ${socket.userId}`);
-    // --- IMPROVEMENT: Add a cleanup method in your AIService if needed ---
-    // This could clear caches, close streams, or save final state.
-    if (aiService && typeof aiService.cleanup === "function") {
-      aiService.cleanup();
-    }
   });
 });
 

@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useInterview } from "../hooks/useInterview";
-import VapiVoiceInterface from "./VapiVoiceInterface";
 import CodeEditor from "./CodeEditor";
 import {
   Camera,
@@ -15,6 +14,8 @@ import {
   AlertTriangle,
   Send,
   MessageCircle,
+  Play,
+  Square,
 } from "lucide-react";
 
 function InterviewRoom({ onEndInterview }) {
@@ -26,25 +27,18 @@ function InterviewRoom({ onEndInterview }) {
     currentQuestionIndex,
     code,
     setCode,
-    isRecording,
     chatMessages,
-    aiSpeaking,
     loading,
     error,
     interviewStarted,
     startInterview,
     submitCode,
-    nextQuestion,
-    startVoiceRecording,
-    stopVoiceRecording,
     sendChatMessage,
+    sendVoiceInput,
     endInterview,
-    hasNextQuestion,
     canSubmitCode,
     isInterviewActive,
     clearError,
-    // Assuming setError is available from the hook to be used in initializeInterview
-    setError,
   } = useInterview();
 
   // Camera and screen sharing
@@ -55,32 +49,36 @@ function InterviewRoom({ onEndInterview }) {
   const [screenAnalysis, setScreenAnalysis] = useState(null);
   const [suspiciousActivity, setSuspiciousActivity] = useState([]);
   const [newMessage, setNewMessage] = useState("");
-  const [voiceInteractions, setVoiceInteractions] = useState([]);
+  
+  // Voice recording
+  const [isRecording, setIsRecording] = useState(false);
+  const [recognition, setRecognition] = useState(null);
+  const [transcript, setTranscript] = useState("");
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const screenStreamRef = useRef(null);
 
-  // --- FIX: THE DEPENDENCY ARRAY IS NOW EMPTY ---
-  // This ensures all the setup logic inside this effect runs ONLY ONCE when the component first mounts.
   useEffect(() => {
-    // We no longer need the `if` condition because this effect itself is the "run once" guard.
     initializeInterview();
     startCamera();
     startScreenMonitoring();
+    initializeSpeechRecognition();
 
     const timer = setInterval(() => {
       setTimeElapsed((prev) => prev + 1);
     }, 1000);
 
-    // This cleanup function will run only when the component unmounts.
     return () => {
       clearInterval(timer);
       stopCamera();
       stopScreenShare();
       stopScreenMonitoring();
+      if (recognition) {
+        recognition.stop();
+      }
     };
-  }, []); // <--- THE FIX IS HERE!
+  }, []);
 
   const initializeInterview = async () => {
     console.log("🎬 Initializing interview...");
@@ -90,11 +88,50 @@ function InterviewRoom({ onEndInterview }) {
       topic: "arrays",
     });
 
-    // The useInterview hook should handle loading/started state.
-    // This function now just triggers the process.
     if (result && !result.success) {
       console.error("Failed to start interview:", result.error);
-      if (setError) setError(result.error);
+    }
+  };
+
+  const initializeSpeechRecognition = () => {
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const recognitionInstance = new SpeechRecognition();
+      
+      recognitionInstance.continuous = true;
+      recognitionInstance.interimResults = true;
+      recognitionInstance.lang = 'en-US';
+
+      recognitionInstance.onresult = (event) => {
+        let finalTranscript = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          }
+        }
+        
+        if (finalTranscript) {
+          setTranscript(finalTranscript);
+          console.log('🎤 Speech recognized:', finalTranscript);
+        }
+      };
+
+      recognitionInstance.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        setIsRecording(false);
+      };
+
+      recognitionInstance.onend = () => {
+        setIsRecording(false);
+        if (transcript) {
+          sendVoiceInput(transcript);
+          setTranscript("");
+        }
+      };
+
+      setRecognition(recognitionInstance);
+    } else {
+      console.warn('Speech recognition not supported');
     }
   };
 
@@ -229,18 +266,20 @@ function InterviewRoom({ onEndInterview }) {
     }
   };
 
-  // Handle voice interactions from Vapi
-  const handleVoiceInteraction = (interaction) => {
-    setVoiceInteractions((prev) => [...prev, interaction]);
-
-    // Add to chat messages for display
-    if (interaction.role === "user") {
-      sendChatMessage(interaction.content);
+  const toggleVoiceRecording = () => {
+    if (!recognition) {
+      alert('Speech recognition not supported in this browser');
+      return;
     }
-  };
 
-  const handleCodeChange = (e) => {
-    setCode(e.target.value);
+    if (isRecording) {
+      recognition.stop();
+      setIsRecording(false);
+    } else {
+      recognition.start();
+      setIsRecording(true);
+      setTranscript("");
+    }
   };
 
   const handleSendMessage = (e) => {
@@ -319,15 +358,6 @@ function InterviewRoom({ onEndInterview }) {
                     <span>{strength}</span>
                   </div>
                 ))}
-                {[
-                  "Consider edge cases",
-                  "Optimize time complexity",
-                  "Practice more",
-                ].map((improvement, index) => (
-                  <div key={index + 10} className="feedback-point improvement">
-                    <span>{improvement}</span>
-                  </div>
-                ))}
               </div>
 
               {suspiciousActivity.length > 0 && (
@@ -380,6 +410,7 @@ function InterviewRoom({ onEndInterview }) {
                 : "Starting AI Interview"}
             </h2>
             <p>Our AI interviewer is getting ready to meet you!</p>
+            {loading && <div className="loading-spinner"></div>}
           </div>
         </div>
       </div>
@@ -420,6 +451,14 @@ function InterviewRoom({ onEndInterview }) {
             {isMicOn ? <Mic size={20} /> : <MicOff size={20} />}
           </button>
           <button
+            className={`control-btn ${isRecording ? "recording" : ""}`}
+            onClick={toggleVoiceRecording}
+            title={isRecording ? "Stop recording" : "Start voice input"}
+          >
+            {isRecording ? <Square size={20} /> : <Play size={20} />}
+            {isRecording ? "Stop Voice" : "Talk to AI"}
+          </button>
+          <button
             className={`control-btn ${isScreenSharing ? "active" : "inactive"}`}
             onClick={toggleScreenShare}
             title="Toggle Screen Share"
@@ -447,6 +486,20 @@ function InterviewRoom({ onEndInterview }) {
         </div>
       )}
 
+      {isRecording && (
+        <div className="voice-recording-banner">
+          <div className="recording-indicator">
+            <div className="recording-dot"></div>
+            <span>Listening... Speak now</span>
+          </div>
+          {transcript && (
+            <div className="live-transcript">
+              <span>You said: "{transcript}"</span>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="interview-content">
         <div className="video-section">
           <div className="video-container">
@@ -464,16 +517,14 @@ function InterviewRoom({ onEndInterview }) {
             )}
           </div>
 
-          {/* Vapi Voice Interface */}
-          <VapiVoiceInterface
-            interviewContext={{
-              difficulty: currentQuestion?.difficulty || "medium",
-              topic: currentQuestion?.topic || "arrays",
-              phase: "problem_solving",
-              currentQuestion: currentQuestion,
-            }}
-            onVoiceInteraction={handleVoiceInteraction}
-          />
+          <div className="ai-avatar">
+            <div className="avatar-container">
+              <div className="avatar-circle">AI</div>
+              <div className="ai-status">
+                {loading ? "Thinking..." : "Ready to help"}
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="coding-section">
@@ -509,6 +560,17 @@ function InterviewRoom({ onEndInterview }) {
                 </div>
               )}
 
+              {currentQuestion?.constraints && (
+                <div className="constraints">
+                  <strong>Constraints:</strong>
+                  <ul>
+                    {currentQuestion.constraints.map((constraint, index) => (
+                      <li key={index}>{constraint}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               {currentQuestion?.hints && (
                 <div className="hints">
                   <strong>Hints:</strong>
@@ -525,20 +587,10 @@ function InterviewRoom({ onEndInterview }) {
               <button
                 className="btn btn-success"
                 onClick={submitCode}
-                disabled={!canSubmitCode}
+                disabled={!canSubmitCode || loading}
               >
                 {loading ? "Evaluating..." : "Submit Code"}
               </button>
-
-              {hasNextQuestion && (
-                <button
-                  className="btn btn-primary"
-                  onClick={nextQuestion}
-                  disabled={loading}
-                >
-                  Next Question
-                </button>
-              )}
 
               <button
                 className="btn btn-secondary"
