@@ -13,25 +13,49 @@ function LoginModal({ onClose, onSuccess }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  const { login, register } = useAuth()
+  const { login, register, clearError } = useAuth()
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
     setError('')
+    clearError()
+
+    // Basic validation
+    if (!formData.email || !formData.password) {
+      setError('Please fill in all required fields')
+      setLoading(false)
+      return
+    }
+
+    if (!isLogin && !formData.name) {
+      setError('Please enter your name')
+      setLoading(false)
+      return
+    }
+
+    if (formData.password.length < 6) {
+      setError('Password must be at least 6 characters')
+      setLoading(false)
+      return
+    }
 
     try {
+      console.log(`🔐 ${isLogin ? 'Login' : 'Registration'} attempt for:`, formData.email)
+      
       const result = isLogin 
         ? await login({ email: formData.email, password: formData.password })
         : await register(formData)
 
       if (result.success) {
+        console.log('✅ Authentication successful')
         onSuccess()
       } else {
-        setError(result.error)
+        setError(result.error || 'Authentication failed')
       }
     } catch (error) {
-      setError('An unexpected error occurred')
+      console.error('❌ Authentication error:', error)
+      setError(error.response?.data?.message || error.message || 'An unexpected error occurred')
     } finally {
       setLoading(false)
     }
@@ -42,6 +66,14 @@ function LoginModal({ onClose, onSuccess }) {
       ...prev,
       [e.target.name]: e.target.value
     }))
+    // Clear error when user starts typing
+    if (error) setError('')
+  }
+
+  const switchMode = () => {
+    setIsLogin(!isLogin)
+    setError('')
+    setFormData({ name: '', email: '', password: '' })
   }
 
   return (
@@ -74,6 +106,7 @@ function LoginModal({ onClose, onSuccess }) {
                   onChange={handleInputChange}
                   placeholder="Enter your full name"
                   required={!isLogin}
+                  disabled={loading}
                 />
               </div>
             </div>
@@ -91,6 +124,7 @@ function LoginModal({ onClose, onSuccess }) {
                 onChange={handleInputChange}
                 placeholder="Enter your email"
                 required
+                disabled={loading}
               />
             </div>
           </div>
@@ -108,11 +142,13 @@ function LoginModal({ onClose, onSuccess }) {
                 placeholder="Enter your password"
                 required
                 minLength={6}
+                disabled={loading}
               />
               <button
                 type="button"
                 className="password-toggle"
                 onClick={() => setShowPassword(!showPassword)}
+                disabled={loading}
               >
                 {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
               </button>
@@ -124,7 +160,14 @@ function LoginModal({ onClose, onSuccess }) {
             className="btn btn-primary btn-full"
             disabled={loading}
           >
-            {loading ? 'Please wait...' : (isLogin ? 'Sign In' : 'Create Account')}
+            {loading ? (
+              <>
+                <div className="loading-spinner small"></div>
+                {isLogin ? 'Signing In...' : 'Creating Account...'}
+              </>
+            ) : (
+              isLogin ? 'Sign In' : 'Create Account'
+            )}
           </button>
         </form>
 
@@ -134,11 +177,8 @@ function LoginModal({ onClose, onSuccess }) {
             <button 
               type="button"
               className="link-button"
-              onClick={() => {
-                setIsLogin(!isLogin)
-                setError('')
-                setFormData({ name: '', email: '', password: '' })
-              }}
+              onClick={switchMode}
+              disabled={loading}
             >
               {isLogin ? 'Sign up' : 'Sign in'}
             </button>

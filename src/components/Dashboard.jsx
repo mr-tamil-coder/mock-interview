@@ -9,6 +9,7 @@ function Dashboard({ onStartInterview }) {
   const [selectedTopic, setSelectedTopic] = useState('arrays')
   const [dashboardData, setDashboardData] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
     loadDashboardData()
@@ -16,13 +17,49 @@ function Dashboard({ onStartInterview }) {
 
   const loadDashboardData = async () => {
     try {
+      setLoading(true)
+      setError(null)
+      
+      console.log('📊 Loading dashboard data...')
+      
+      // Check if backend is available
+      await apiService.healthCheck()
+      console.log('✅ Backend health check passed')
+      
       const data = await apiService.getDashboardData()
       setDashboardData(data)
+      console.log('✅ Dashboard data loaded successfully')
     } catch (error) {
-      console.error('Failed to load dashboard data:', error)
+      console.error('❌ Failed to load dashboard data:', error)
+      setError(error.response?.data?.message || error.message || 'Failed to load dashboard data')
+      
+      // Set default data to prevent UI breaking
+      setDashboardData({
+        stats: {
+          totalInterviews: 0,
+          completedInterviews: 0,
+          averageScore: 0,
+          thisWeekInterviews: 0
+        },
+        recentInterviews: []
+      })
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleStartInterview = () => {
+    console.log('🚀 Starting interview with:', {
+      type: 'dsa',
+      difficulty: selectedDifficulty,
+      topic: selectedTopic
+    })
+    
+    onStartInterview({
+      type: 'dsa',
+      difficulty: selectedDifficulty,
+      topic: selectedTopic
+    })
   }
 
   const interviewTypes = [
@@ -45,21 +82,30 @@ function Dashboard({ onStartInterview }) {
   ]
 
   const topics = [
-    'Arrays', 'Linked Lists', 'Trees', 'Graphs', 'Dynamic Programming',
-    'Sorting', 'Searching', 'Hash Tables', 'Stacks & Queues'
+    'arrays', 'linked-lists', 'trees', 'graphs', 'dynamic-programming',
+    'sorting', 'searching', 'hash-tables', 'stacks-queues'
   ]
 
   if (loading) {
     return (
       <div className="dashboard">
         <div className="container">
-          <div className="loading-spinner">Loading dashboard...</div>
+          <div className="loading-spinner">
+            <div className="spinner"></div>
+            <p>Loading dashboard...</p>
+          </div>
         </div>
       </div>
     )
   }
 
-  const stats = dashboardData?.stats || {}
+  const stats = dashboardData?.stats || {
+    totalInterviews: 0,
+    completedInterviews: 0,
+    averageScore: 0,
+    thisWeekInterviews: 0
+  }
+  
   const recentInterviews = dashboardData?.recentInterviews || []
 
   return (
@@ -69,6 +115,15 @@ function Dashboard({ onStartInterview }) {
           <h1>Welcome back, {user?.name || 'Developer'}!</h1>
           <p>Ready to practice your next interview? Let's get started.</p>
         </div>
+
+        {error && (
+          <div className="error-banner">
+            <p>⚠️ {error}</p>
+            <button onClick={loadDashboardData} className="btn btn-secondary">
+              Retry
+            </button>
+          </div>
+        )}
 
         <div className="dashboard-content">
           {/* Quick Start Section */}
@@ -103,8 +158,8 @@ function Dashboard({ onStartInterview }) {
                     className="setup-select"
                   >
                     {topics.map(topic => (
-                      <option key={topic.toLowerCase()} value={topic.toLowerCase()}>
-                        {topic}
+                      <option key={topic} value={topic}>
+                        {topic.charAt(0).toUpperCase() + topic.slice(1).replace('-', ' ')}
                       </option>
                     ))}
                   </select>
@@ -127,14 +182,10 @@ function Dashboard({ onStartInterview }) {
 
                 <button 
                   className="btn btn-primary btn-lg start-interview-btn"
-                  onClick={() => onStartInterview({
-                    type: 'dsa',
-                    difficulty: selectedDifficulty,
-                    topic: selectedTopic
-                  })}
+                  onClick={handleStartInterview}
                 >
                   <Play size={20} />
-                  Start Interview
+                  Start Mock Interview
                 </button>
               </div>
             </div>
@@ -181,20 +232,27 @@ function Dashboard({ onStartInterview }) {
               <div className="card">
                 <h2>Recent Interviews</h2>
                 <div className="interviews-list">
-                  {recentInterviews.map(interview => (
-                    <div key={interview.id} className="interview-item">
-                      <div className="interview-info">
-                        <h3>{interview.type.toUpperCase()} Interview</h3>
-                        <p>{new Date(interview.createdAt).toLocaleDateString()} • {Math.round(interview.duration / 60) || 0} min</p>
+                  {recentInterviews.length > 0 ? (
+                    recentInterviews.map((interview, index) => (
+                      <div key={interview._id || index} className="interview-item">
+                        <div className="interview-info">
+                          <h3>{(interview.type || 'DSA').toUpperCase()} Interview</h3>
+                          <p>
+                            {interview.createdAt ? new Date(interview.createdAt).toLocaleDateString() : 'Recent'} • 
+                            {Math.round((interview.duration || 0) / 60) || 0} min
+                          </p>
+                        </div>
+                        <div className="interview-score">
+                          <span className={`score ${
+                            (interview.scores?.overall || 0) >= 80 ? 'good' : 
+                            (interview.scores?.overall || 0) >= 60 ? 'okay' : 'needs-work'
+                          }`}>
+                            {Math.round(interview.scores?.overall || 0)}%
+                          </span>
+                        </div>
                       </div>
-                      <div className="interview-score">
-                        <span className={`score ${(interview.scores?.overall || 0) >= 80 ? 'good' : (interview.scores?.overall || 0) >= 60 ? 'okay' : 'needs-work'}`}>
-                          {Math.round(interview.scores?.overall || 0)}%
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                  {recentInterviews.length === 0 && (
+                    ))
+                  ) : (
                     <div className="no-interviews">
                       <p>No interviews completed yet. Start your first interview above!</p>
                     </div>

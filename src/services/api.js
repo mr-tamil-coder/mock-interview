@@ -1,36 +1,56 @@
 import axios from 'axios';
 
-// Use the same protocol as the current page to avoid mixed content issues
+// Dynamic API base URL that works with both HTTP and HTTPS
 const getApiBaseUrl = () => {
   const protocol = window.location.protocol;
-  return `${protocol}//localhost:5000/api`;
+  const hostname = window.location.hostname;
+  return `${protocol}//${hostname}:5000/api`;
 };
 
-const API_BASE_URL = getApiBaseUrl();
 class ApiService {
   constructor() {
+    this.baseURL = getApiBaseUrl();
+    
     this.api = axios.create({
-      baseURL: API_BASE_URL,
+      baseURL: this.baseURL,
       timeout: 30000,
-    });
-
-    // Add auth token to requests
-    this.api.interceptors.request.use((config) => {
-      const token = localStorage.getItem('token');
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
+      withCredentials: true,
+      headers: {
+        'Content-Type': 'application/json'
       }
-      return config;
     });
 
-    // Handle auth errors
-    this.api.interceptors.response.use(
-      (response) => response,
-      (error) => {
-        if (error.response?.status === 401) {
-          localStorage.removeItem('token');
-          window.location.href = '/';
+    // Request interceptor to add auth token
+    this.api.interceptors.request.use(
+      (config) => {
+        const token = this.getAuthToken();
+        if (token) {
+          config.headers.Authorization = `Bearer ${token}`;
         }
+        console.log(`🌐 API Request: ${config.method?.toUpperCase()} ${config.url}`);
+        return config;
+      },
+      (error) => {
+        console.error('❌ Request interceptor error:', error);
+        return Promise.reject(error);
+      }
+    );
+
+    // Response interceptor for error handling
+    this.api.interceptors.response.use(
+      (response) => {
+        console.log(`✅ API Response: ${response.config.method?.toUpperCase()} ${response.config.url} - ${response.status}`);
+        return response;
+      },
+      (error) => {
+        console.error('❌ API Error:', error.response?.data || error.message);
+        
+        if (error.response?.status === 401) {
+          console.log('🔐 Unauthorized - clearing token');
+          this.removeAuthToken();
+          // Don't redirect automatically, let components handle it
+        }
+        
         return Promise.reject(error);
       }
     );
@@ -38,147 +58,161 @@ class ApiService {
 
   // Auth endpoints
   async register(userData) {
-    const response = await this.api.post('/auth/register', userData);
-    return response.data;
+    try {
+      console.log('📝 Registering user:', userData.email);
+      const response = await this.api.post('/auth/register', userData);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Registration failed:', error.response?.data || error.message);
+      throw error;
+    }
   }
 
   async login(credentials) {
-    const response = await this.api.post('/auth/login', credentials);
-    return response.data;
+    try {
+      console.log('🔐 Logging in user:', credentials.email);
+      const response = await this.api.post('/auth/login', credentials);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Login failed:', error.response?.data || error.message);
+      throw error;
+    }
   }
 
   async getCurrentUser() {
-    const response = await this.api.get('/auth/me');
-    return response.data;
+    try {
+      const response = await this.api.get('/auth/me');
+      return response.data;
+    } catch (error) {
+      console.error('❌ Get current user failed:', error.response?.data || error.message);
+      throw error;
+    }
   }
 
   async updateProfile(updates) {
-    const response = await this.api.put('/auth/profile', updates);
-    return response.data;
+    try {
+      const response = await this.api.put('/auth/profile', updates);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Profile update failed:', error.response?.data || error.message);
+      throw error;
+    }
   }
 
   // Interview endpoints
   async createInterview(interviewData) {
-    const response = await this.api.post('/interviews', interviewData);
-    return response.data;
+    try {
+      console.log('🎯 Creating interview:', interviewData);
+      const response = await this.api.post('/interviews', interviewData);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Create interview failed:', error.response?.data || error.message);
+      throw error;
+    }
   }
 
   async getInterviews(params = {}) {
-    const response = await this.api.get('/interviews', { params });
-    return response.data;
+    try {
+      const response = await this.api.get('/interviews', { params });
+      return response.data;
+    } catch (error) {
+      console.error('❌ Get interviews failed:', error.response?.data || error.message);
+      throw error;
+    }
   }
 
   async getInterview(id) {
-    const response = await this.api.get(`/interviews/${id}`);
-    return response.data;
+    try {
+      const response = await this.api.get(`/interviews/${id}`);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Get interview failed:', error.response?.data || error.message);
+      throw error;
+    }
   }
 
   async updateInterview(id, updates) {
-    const response = await this.api.put(`/interviews/${id}`, updates);
-    return response.data;
+    try {
+      const response = await this.api.put(`/interviews/${id}`, updates);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Update interview failed:', error.response?.data || error.message);
+      throw error;
+    }
   }
 
   async completeInterview(id, data) {
-    const response = await this.api.post(`/interviews/${id}/complete`, data);
-    return response.data;
+    try {
+      const response = await this.api.post(`/interviews/${id}/complete`, data);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Complete interview failed:', error.response?.data || error.message);
+      throw error;
+    }
   }
 
   async getInterviewStats() {
-    const response = await this.api.get('/interviews/stats/overview');
-    return response.data;
-  }
-
-  // AI endpoints
-  async generateQuestion(params) {
-    const response = await this.api.post('/ai/generate-question', params);
-    return response.data;
-  }
-
-  async evaluateCode(data) {
-    const response = await this.api.post('/ai/evaluate-code', data);
-    return response.data;
-  }
-
-  async processVoiceInput(audioBlob) {
-    const formData = new FormData();
-    formData.append('audio', audioBlob, 'voice-input.webm');
-    
-    const response = await this.api.post('/ai/voice-input', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
-    return response.data;
-  }
-
-  async textToSpeech(text, voice = 'female') {
-    const response = await this.api.post('/ai/text-to-speech', { text, voice });
-    return response.data;
-  }
-
-  async chatWithAI(message, context, interviewId) {
-    const response = await this.api.post('/ai/chat', {
-      message,
-      context,
-      interviewId
-    });
-    return response.data;
-  }
-
-  async generateSummary(interviewId, performance, duration) {
-    const response = await this.api.post('/ai/generate-summary', {
-      interviewId,
-      performance,
-      duration
-    });
-    return response.data;
-  }
-
-  async getInsights(interviewId) {
-    const response = await this.api.get(`/ai/insights/${interviewId}`);
-    return response.data;
+    try {
+      const response = await this.api.get('/interviews/stats/overview');
+      return response.data;
+    } catch (error) {
+      console.error('❌ Get interview stats failed:', error.response?.data || error.message);
+      throw error;
+    }
   }
 
   // User endpoints
   async getDashboardData() {
-    const response = await this.api.get('/users/dashboard');
-    return response.data;
+    try {
+      console.log('📊 Loading dashboard data...');
+      const response = await this.api.get('/users/dashboard');
+      return response.data;
+    } catch (error) {
+      console.error('❌ Get dashboard data failed:', error.response?.data || error.message);
+      throw error;
+    }
   }
 
   async updatePreferences(preferences) {
-    const response = await this.api.put('/users/preferences', preferences);
-    return response.data;
+    try {
+      const response = await this.api.put('/users/preferences', preferences);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Update preferences failed:', error.response?.data || error.message);
+      throw error;
+    }
   }
 
-  async getAnalytics(timeframe = '30d') {
-    const response = await this.api.get('/users/analytics', {
-      params: { timeframe }
-    });
-    return response.data;
+  // Health check
+  async healthCheck() {
+    try {
+      const response = await axios.get(`${this.baseURL.replace('/api', '')}/health`, {
+        timeout: 5000
+      });
+      return response.data;
+    } catch (error) {
+      console.error('❌ Health check failed:', error.message);
+      throw error;
+    }
   }
 
-  async getLeaderboard(timeframe = 'all', limit = 10) {
-    const response = await this.api.get('/users/leaderboard', {
-      params: { timeframe, limit }
-    });
-    return response.data;
-  }
-
-  // Utility methods
-  getAudioUrl(filename) {
-    return `${API_BASE_URL}/ai/audio/${filename}`;
-  }
-
+  // Token management
   setAuthToken(token) {
     localStorage.setItem('token', token);
+    console.log('🔐 Auth token saved');
   }
 
   removeAuthToken() {
     localStorage.removeItem('token');
+    console.log('🔐 Auth token removed');
   }
 
   getAuthToken() {
     return localStorage.getItem('token');
+  }
+
+  isAuthenticated() {
+    return !!this.getAuthToken();
   }
 }
 
