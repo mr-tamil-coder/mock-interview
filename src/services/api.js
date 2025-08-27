@@ -1,7 +1,12 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:5000/api';
+// Use the same protocol as the current page to avoid mixed content issues
+const getApiBaseUrl = () => {
+  const protocol = window.location.protocol;
+  return `${protocol}//localhost:5000/api`;
+};
 
+const API_BASE_URL = getApiBaseUrl();
 class ApiService {
   constructor() {
     this.api = axios.create({
