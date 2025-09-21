@@ -1,326 +1,339 @@
-import { useState, useEffect } from 'react'
-import { Play, RotateCcw, Copy, Check } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react';
+import Editor from '@monaco-editor/react';
+import { Play, RotateCcw, Copy, Check, AlertCircle, Zap, Clock, Target } from 'lucide-react';
 
 function CodeEditor({ code, onCodeChange, question, evaluation, loading }) {
-  const [currentCode, setCurrentCode] = useState('')
-  const [selectedLanguage, setSelectedLanguage] = useState('java')
-  const [output, setOutput] = useState('')
-  const [isRunning, setIsRunning] = useState(false)
-  const [testResults, setTestResults] = useState([])
+  const [currentCode, setCurrentCode] = useState('');
+  const [output, setOutput] = useState('');
+  const [isRunning, setIsRunning] = useState(false);
+  const [testResults, setTestResults] = useState([]);
+  const [compilationError, setCompilationError] = useState(null);
+  const [syntaxError, setSyntaxError] = useState(null);
+  const [score, setScore] = useState(null);
+  const [detailedFeedback, setDetailedFeedback] = useState(null);
+  const editorRef = useRef(null);
 
-  // Language templates
-  const languageTemplates = {
-    java: `public class Solution {
-    public int[] twoSum(int[] nums, int target) {
-        // Write your solution here
-        
+  // Empty Java class template
+  const javaTemplate = `public class Solution {
+    // Write your solution here
+}`;
+
+  // Initialize code when component mounts or question changes
+  // Handle code changes from Monaco Editor
+  const handleEditorChange = (value) => {
+    setCurrentCode(value);
+    onCodeChange?.(value);
+  };
+
+  useEffect(() => {
+    if (question && question.starterCode) {
+      const starterCode = question.starterCode.java || javaTemplate;
+      setCurrentCode(starterCode);
+      onCodeChange?.(starterCode);
+    } else {
+      setCurrentCode(javaTemplate);
+      onCodeChange?.(javaTemplate);
     }
-}`,
-    javascript: `function solution(params) {
-    // Your code here
-    
-}
+  }, [question]);
 
-// Test your solution
-console.log(solution());`,
-    python: `def solution(params):
-    # Your code here
-    pass
-
-# Test your solution
-print(solution())`,
-    cpp: `#include <iostream>
-#include <vector>
-using namespace std;
-
-class Solution {
-public:
-    vector<int> twoSum(vector<int>& nums, int target) {
-        // Write your solution here
-        
+  // Update code when prop changes
+  useEffect(() => {
+    if (code !== undefined && code !== currentCode) {
+      setCurrentCode(code);
     }
-};`
-  }
+  }, [code]);
 
-  // Real DSA problems with proper test cases
-  const realTestCases = {
-    'Two Sum': [
-      { input: '[2,7,11,15], target=9', expected: '[0,1]', description: 'Basic case' },
-      { input: '[3,2,4], target=6', expected: '[1,2]', description: 'Different indices' },
-      { input: '[3,3], target=6', expected: '[0,1]', description: 'Same numbers' }
-    ],
-    'Longest Substring': [
-      { input: '"abcabcbb"', expected: '3', description: 'Repeating pattern' },
-      { input: '"bbbbb"', expected: '1', description: 'All same characters' },
-      { input: '"pwwkew"', expected: '3', description: 'Mixed characters' }
-    ]
-  }
+  // Update output when evaluation changes
+  useEffect(() => {
+    if (evaluation) {
+      const results = evaluation.testResults || [];
+      setTestResults(results);
 
-  // Code quality analysis
-  const analyzeCodeQuality = (code, language) => {
+      const passedTests = results.filter((test) => test.passed).length;
+      const totalTests = results.length;
+      const overallScore = evaluation.scores?.overall || 0;
+
+      setScore({
+        overall: overallScore,
+        correctness: evaluation.scores?.correctness || 0,
+        efficiency: evaluation.scores?.efficiency || 0,
+        codeQuality: evaluation.scores?.codeQuality || 0,
+        problemSolving: evaluation.scores?.problemSolving || 0,
+      });
+
+      setDetailedFeedback({
+        strengths: evaluation.feedback?.strengths || [],
+        improvements: evaluation.feedback?.improvements || [],
+        complexity: evaluation.complexityAnalysis || {},
+        comment: evaluation.interviewerComment || '',
+      });
+
+      setOutput(`Code Evaluation Complete!
+
+🎯 Overall Score: ${overallScore}%
+✅ Tests Passed: ${passedTests}/${totalTests}
+
+📊 Score Breakdown:
+• Correctness: ${evaluation.scores?.correctness || 0}%
+• Efficiency: ${evaluation.scores?.efficiency || 0}%
+• Code Quality: ${evaluation.scores?.codeQuality || 0}%
+• Problem Solving: ${evaluation.scores?.problemSolving || 0}%
+
+💡 Feedback: ${evaluation.feedback?.strengths?.join(', ') || 'Good effort!'}
+
+${evaluation.interviewerComment || ''}`);
+    }
+  }, [evaluation]);
+
+  const handleCodeChange = (newCode) => {
+    setCurrentCode(newCode);
+    onCodeChange?.(newCode);
+
+    // Clear previous errors
+    setCompilationError(null);
+    setSyntaxError(null);
+  };
+
+  const formatCode = () => {
+    // Basic Java code formatting
+    let formatted = currentCode;
+
+    // Fix indentation
+    const lines = formatted.split('\n');
+    const formattedLines = lines.map((line, index) => {
+      const trimmed = line.trim();
+      if (trimmed === '') return '';
+
+      // Calculate proper indentation
+      let indentLevel = 0;
+      if (trimmed.includes('{')) indentLevel++;
+      if (trimmed.includes('}')) indentLevel--;
+
+      // Apply indentation
+      const indent = '    '.repeat(Math.max(0, indentLevel));
+      return indent + trimmed;
+    });
+
+    formatted = formattedLines.join('\n');
+    setCurrentCode(formatted);
+    onCodeChange?.(formatted);
+  };
+
+  const runCode = async () => {
+    setIsRunning(true);
+    setOutput('🔄 Compiling and running Java code...');
+    setCompilationError(null);
+    setSyntaxError(null);
+
+    try {
+      // Call the real Java execution service
+      const response = await fetch('http://localhost:3000/api/java/execute', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          code: currentCode,
+          testCases: question?.testCases || [],
+        }),
+      });
+
+      // Check if response is ok
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Server error: ${response.status} - ${errorText}`);
+      }
+
+      // Try to parse JSON response
+      let result;
+      try {
+        result = await response.json();
+      } catch (jsonError) {
+        const responseText = await response.text();
+        throw new Error(`Invalid JSON response: ${responseText}`);
+      }
+
+      if (!result.success) {
+        if (result.type === 'compilation') {
+          setCompilationError({
+            message: result.error,
+            line: result.line,
+          });
+          setOutput(`❌ Compilation Error (Line ${result.line || 'Unknown'}):
+${result.error}`);
+        } else if (result.type === 'timeout') {
+          setOutput(`⏱️ Time Limit Exceeded (2 seconds)
+Your code took too long to execute. Try optimizing your solution.`);
+        } else if (result.type === 'memory') {
+          setOutput(`💾 Memory Limit Exceeded (256MB)
+Your code used too much memory. Try optimizing your solution.`);
+        } else if (result.type === 'security') {
+          setOutput(`⚠️ Security Error:
+${result.error}
+Only standard Java collections and utilities are allowed.`);
+        } else if (result.type === 'runtime') {
+          setOutput(`⚠️ Runtime Error:
+${result.error}
+
+💡 Tips:
+• Check for null pointer exceptions
+• Verify array bounds
+• Ensure proper return statements`);
+        } else {
+          setOutput(`❌ System Error:
+${result.error}`);
+        }
+      } else {
+        setTestResults(result.testResults || []);
+
+        const passedCount = result.testResults?.filter((test) => test.passed).length || 0;
+        const totalCount = result.testResults?.length || 0;
+
+        let executionOutput = `✅ Java compilation successful!
+⚡ Execution completed in ${result.executionTime || 0}ms
+
+📋 Test Results: ${passedCount}/${totalCount} passed
+
+${result.output || 'Code executed successfully!'}`;
+
+        if (result.testResults && result.testResults.length > 0) {
+          executionOutput += '\n\n📊 Detailed Test Results:';
+          result.testResults.forEach((test, index) => {
+            executionOutput += `\n\nTest ${index + 1}: ${test.passed ? '✅ PASSED' : '❌ FAILED'}`;
+            executionOutput += `\nInput: ${test.input}`;
+            executionOutput += `\nExpected: ${test.expected}`;
+            executionOutput += `\nActual: ${test.actual}`;
+            if (test.error) {
+              executionOutput += `\nError: ${test.error}`;
+            }
+          });
+        }
+
+        setOutput(executionOutput);
+      }
+    } catch (error) {
+      setOutput(`❌ Execution failed: ${error.message}`);
+      console.error('Java execution error:', error);
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  const checkJavaSyntax = (code) => {
+    // Basic Java syntax validation
+    const errors = [];
+
+    // Check for basic Java structure
+    if (!code.includes('public class')) {
+      errors.push('Missing public class declaration');
+    }
+
+    if (!code.includes('public') && !code.includes('private') && !code.includes('protected')) {
+      errors.push('No method declarations found');
+    }
+
+    // Check for common syntax errors
+    const lines = code.split('\n');
+    lines.forEach((line, index) => {
+      const trimmed = line.trim();
+      if (
+        trimmed.includes('{') &&
+        !trimmed.includes('}') &&
+        !trimmed.includes('class') &&
+        !trimmed.includes('if') &&
+        !trimmed.includes('for') &&
+        !trimmed.includes('while')
+      ) {
+        // Check if next few lines have matching brace
+        let braceCount = 0;
+        for (let i = index; i < Math.min(index + 10, lines.length); i++) {
+          if (lines[i].includes('{')) braceCount++;
+          if (lines[i].includes('}')) braceCount--;
+          if (braceCount === 0) break;
+        }
+        if (braceCount > 0) {
+          errors.push(`Unmatched brace at line ${index + 1}`);
+        }
+      }
+    });
+
+    if (errors.length > 0) {
+      return {
+        valid: false,
+        error: errors.join('\n'),
+        line: 1,
+      };
+    }
+
+    return { valid: true };
+  };
+
+  const analyzeCodeQuality = (code) => {
     let score = 0;
-    let feedback = [];
+    const feedback = [];
 
     // Basic structure check
-    if (code.length > 50) score += 20;
+    if (code.length > 100) score += 20;
     else feedback.push('Code seems too short for a complete solution');
 
-    // Language-specific checks
-    if (language === 'java') {
-      if (code.includes('public') && code.includes('class')) score += 20;
-      if (code.includes('return')) score += 20;
-      if (code.includes('HashMap') || code.includes('Map')) {
-        score += 20;
-        feedback.push('Good use of HashMap for optimization');
-      }
-      if (code.includes('for') || code.includes('while')) {
-        score += 10;
-        feedback.push('Proper loop implementation');
-      }
+    // Java-specific checks
+    if (code.includes('public') && code.includes('class')) score += 20;
+    if (code.includes('return')) score += 20;
+    if (code.includes('HashMap') || code.includes('Map')) {
+      score += 20;
+      feedback.push('Good use of HashMap for optimization');
     }
-
-    // Check for common patterns
+    if (code.includes('for') || code.includes('while')) {
+      score += 10;
+      feedback.push('Proper loop implementation');
+    }
     if (code.includes('// ') || code.includes('/* ')) {
       score += 10;
       feedback.push('Good code documentation');
     }
 
     return { score: Math.min(score, 100), feedback };
-  }
-
-  // Simulate real test execution
-  const executeTests = (code, language, questionTitle) => {
-    const testCases = realTestCases[questionTitle] || realTestCases['Two Sum'];
-    const codeAnalysis = analyzeCodeQuality(code, language);
-    
-    return testCases.map((testCase, index) => {
-      // Determine if test passes based on code quality and logic
-      let passed = false;
-      
-      if (codeAnalysis.score > 60) {
-        // Higher chance of passing with better code
-        passed = Math.random() > (0.3 - (codeAnalysis.score / 500));
-      }
-      
-      // Always pass at least one test for encouragement
-      if (index === 0 && codeAnalysis.score > 40) passed = true;
-      
-      return {
-        id: index + 1,
-        input: testCase.input,
-        expected: testCase.expected,
-        actual: passed ? testCase.expected : 'Wrong output',
-        passed,
-        description: testCase.description,
-        executionTime: Math.floor(Math.random() * 50) + 1 + 'ms',
-        memoryUsed: Math.floor(Math.random() * 20) + 10 + 'MB'
-      };
-    });
-  }
-
-  // Initialize code when component mounts or question changes
-  useEffect(() => {
-    if (question && question.starterCode) {
-      const starterCode = question.starterCode[selectedLanguage] || languageTemplates[selectedLanguage]
-      setCurrentCode(starterCode)
-      onCodeChange?.(starterCode)
-    } else {
-      setCurrentCode(languageTemplates[selectedLanguage])
-      onCodeChange?.(languageTemplates[selectedLanguage])
-    }
-  }, [question, selectedLanguage])
-
-  // Update code when prop changes
-  useEffect(() => {
-    if (code !== undefined && code !== currentCode) {
-      setCurrentCode(code)
-    }
-  }, [code])
-
-  // Update output when evaluation changes
-  useEffect(() => {
-    if (evaluation) {
-      const results = evaluation.testResults || []
-      setTestResults(results)
-      
-      const passedTests = results.filter(test => test.passed).length
-      const totalTests = results.length
-      
-      setOutput(`Code Evaluation Complete!
-
-Overall Score: ${evaluation.scores?.overall || 0}%
-Tests Passed: ${passedTests}/${totalTests}
-
-Feedback: ${evaluation.feedback?.strengths?.join(', ') || 'Good effort!'}
-
-${evaluation.interviewerComment || ''}`)
-    }
-  }, [evaluation])
-
-  const handleCodeChange = (e) => {
-    const newCode = e.target.value
-    setCurrentCode(newCode)
-    onCodeChange?.(newCode)
-  }
-
-  const handleLanguageChange = (e) => {
-    const newLanguage = e.target.value
-    setSelectedLanguage(newLanguage)
-    
-    // Update code template for new language
-    if (question && question.starterCode && question.starterCode[newLanguage]) {
-      setCurrentCode(question.starterCode[newLanguage])
-      onCodeChange?.(question.starterCode[newLanguage])
-    } else {
-      setCurrentCode(languageTemplates[newLanguage])
-      onCodeChange?.(languageTemplates[newLanguage])
-    }
-  }
-
-  const runCode = async () => {
-    setIsRunning(true)
-    setOutput('Running code...')
-    
-    // Real test execution with proper analysis
-    setTimeout(() => {
-      const results = executeTests(currentCode, selectedLanguage, question?.title || 'Two Sum')
-      const codeAnalysis = analyzeCodeQuality(currentCode, selectedLanguage)
-      setTestResults(results)
-      
-      const passedCount = results.filter(test => test.passed).length
-      const totalCount = results.length
-      
-      let executionOutput = `Execution Results:\n\n`
-      
-      if (selectedLanguage === 'java') {
-        executionOutput += `✅ Java compilation successful!\n`
-      } else if (selectedLanguage === 'python') {
-        executionOutput += `🐍 Python 3.9.0 execution:\n`
-      } else if (selectedLanguage === 'cpp') {
-        executionOutput += `⚡ C++ compilation successful!\n`
-      } else {
-        executionOutput += `🚀 JavaScript execution:\n`
-      }
-      
-      executionOutput += `Test Results: ${passedCount}/${totalCount} passed\n\n`
-      executionOutput += `Code Quality Score: ${codeAnalysis.score}/100\n\n`
-      
-      if (passedCount === totalCount) {
-        executionOutput += `🎉 All tests passed! Excellent work!\n`
-        executionOutput += `⏱️ Time Complexity: ${analyzeTimeComplexity(currentCode)}\n`
-        executionOutput += `💾 Space Complexity: ${analyzeSpaceComplexity(currentCode)}\n\n`
-        executionOutput += `Feedback: ${codeAnalysis.feedback.join(', ')}`
-      } else {
-        executionOutput += `⚠️ ${totalCount - passedCount} test(s) failed. Keep improving!\n`
-        executionOutput += `💡 Hint: ${getHintForFailedTests(selectedLanguage)}\n\n`
-        if (codeAnalysis.feedback.length > 0) {
-          executionOutput += `Suggestions: ${codeAnalysis.feedback.join(', ')}`
-        }
-      }
-      
-      setOutput(executionOutput)
-      setIsRunning(false)
-    }, 1500)
-  }
-
-  const getHintForFailedTests = (language) => {
-    const hints = {
-      java: 'Consider using HashMap for O(1) lookups. Check your loop conditions and return statement.',
-      javascript: 'Try using a Map or object for efficient lookups. Verify your array indexing.',
-      python: 'Use a dictionary for fast lookups. Check your indentation and return values.',
-      cpp: 'Consider using unordered_map for O(1) average lookup time. Verify vector operations.'
-    };
-    return hints[language] || hints.java;
-  }
-
-  const generateRealisticTestResults = (code, language, question) => {
-    // More realistic test case generation based on actual code analysis
-    const testCases = question?.testCases || [
-      { input: "Example 1", expectedOutput: "Expected 1" },
-      { input: "Example 2", expectedOutput: "Expected 2" },
-      { input: "Edge case", expectedOutput: "Edge result" }
-    ]
-    
-    return testCases.map((testCase, index) => {
-      // Analyze code quality to determine pass/fail
-      let passed = true
-      
-      // Basic code analysis
-      if (code.trim().length < 50) passed = false // Too short
-      if (!code.includes('return') && language !== 'python') passed = false // No return statement
-      if (code.includes('TODO') || code.includes('// Your code here')) passed = false // Template code
-      
-      // Random factor for realistic results
-      if (Math.random() > 0.8) passed = false
-      
-      return {
-        id: index + 1,
-        input: testCase.input,
-        expected: testCase.expectedOutput,
-        actual: passed ? testCase.expectedOutput : 'Wrong output',
-        passed,
-        executionTime: Math.floor(Math.random() * 100) + 1 + 'ms',
-        memoryUsed: Math.floor(Math.random() * 20) + 10 + 'MB'
-      }
-    })
-  }
-
-  const analyzeTimeComplexity = (code) => {
-    if (code.includes('for') && (code.match(/for/g) || []).length > 1) return 'O(n²)'
-    if (code.includes('HashMap') || code.includes('Map') || code.includes('dict')) return 'O(n)'
-    if (code.includes('sort')) return 'O(n log n)'
-    if (code.includes('for') || code.includes('while')) return 'O(n)'
-    return 'O(1)'
-  }
-
-  const analyzeSpaceComplexity = (code) => {
-    if (code.includes('HashMap') || code.includes('Map') || code.includes('dict') || code.includes('unordered_map')) return 'O(n)'
-    if (code.includes('new ') || code.includes('[]') || code.includes('list') || code.includes('vector')) return 'O(n)'
-    return 'O(1)'
-  }
+  };
 
   const resetCode = () => {
-    const starterCode = question?.starterCode?.[selectedLanguage] || languageTemplates[selectedLanguage]
-    setCurrentCode(starterCode)
-    onCodeChange?.(starterCode)
-    setOutput('')
-    setTestResults([])
-  }
+    const starterCode = question?.starterCode?.java || javaTemplate;
+    setCurrentCode(starterCode);
+    onCodeChange?.(starterCode);
+    setOutput('');
+    setTestResults([]);
+    setCompilationError(null);
+    setSyntaxError(null);
+    setScore(null);
+    setDetailedFeedback(null);
+  };
 
   const copyCode = () => {
-    navigator.clipboard.writeText(currentCode)
-  }
+    navigator.clipboard.writeText(currentCode);
+  };
 
   return (
     <div className="code-editor">
       <div className="editor-header">
         <div className="editor-tabs">
           <div className="tab active">
-            <span>Solution.{selectedLanguage === 'cpp' ? 'cpp' : selectedLanguage === 'python' ? 'py' : selectedLanguage}</span>
+            <span>Solution.java</span>
           </div>
-          <select 
-            value={selectedLanguage} 
-            onChange={handleLanguageChange}
-            className="language-selector"
-          >
-            <option value="java">Java</option>
-            <option value="javascript">JavaScript</option>
-            <option value="python">Python</option>
-            <option value="cpp">C++</option>
-          </select>
+          <div className="java-badge">
+            <Zap size={14} />
+            Java Only
+          </div>
         </div>
         <div className="editor-actions">
+          <button className="editor-btn" onClick={formatCode} title="Format code">
+            <Target size={16} />
+          </button>
           <button className="editor-btn" onClick={copyCode} title="Copy code">
             <Copy size={16} />
           </button>
           <button className="editor-btn" onClick={resetCode} title="Reset code">
             <RotateCcw size={16} />
           </button>
-          <button 
-            className="btn btn-success editor-run-btn" 
-            onClick={runCode}
-            disabled={isRunning}
-          >
+          <button className="btn btn-success editor-run-btn" onClick={runCode} disabled={isRunning}>
             <Play size={16} />
             {isRunning ? 'Running...' : 'Run Code'}
           </button>
@@ -329,39 +342,132 @@ ${evaluation.interviewerComment || ''}`)
 
       <div className="editor-content">
         <div className="code-input">
-          <textarea
+          <Editor
+            height="500px"
+            defaultLanguage="java"
+            theme="vs-dark"
             value={currentCode}
             onChange={handleCodeChange}
-            className="code-textarea"
-            placeholder={`Write your ${selectedLanguage} code here...`}
-            spellCheck="false"
+            options={{
+              minimap: { enabled: false },
+              fontSize: 14,
+              formatOnType: true,
+              formatOnPaste: true,
+              tabSize: 2,
+              scrollBeyondLastLine: false,
+              automaticLayout: true,
+            }}
+            onMount={(editor) => {
+              editorRef.current = editor;
+            }}
+            loading="Loading editor..."
             disabled={loading}
           />
+
+          {/* Error highlighting */}
+          {compilationError && (
+            <div className="error-overlay">
+              <div
+                className="error-marker"
+                style={{ top: `${(compilationError.line - 1) * 24}px` }}
+              >
+                <AlertCircle size={16} />
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="editor-output">
           <div className="output-header">
-            <h4>Output</h4>
+            <h4>Output & Results</h4>
           </div>
           <div className="output-content">
-            {output && (
-              <pre className="output-text">{output}</pre>
+            {output && <pre className="output-text">{output}</pre>}
+
+            {/* Score Display */}
+            {score && (
+              <div className="score-display">
+                <h5>📊 Detailed Score Analysis</h5>
+                <div className="score-breakdown">
+                  <div className="score-item">
+                    <div className="score-label">Overall Score</div>
+                    <div className="score-value overall">{score.overall}%</div>
+                  </div>
+                  <div className="score-item">
+                    <div className="score-label">Correctness</div>
+                    <div className="score-value">{score.correctness}%</div>
+                  </div>
+                  <div className="score-item">
+                    <div className="score-label">Efficiency</div>
+                    <div className="score-value">{score.efficiency}%</div>
+                  </div>
+                  <div className="score-item">
+                    <div className="score-label">Code Quality</div>
+                    <div className="score-value">{score.codeQuality}%</div>
+                  </div>
+                  <div className="score-item">
+                    <div className="score-label">Problem Solving</div>
+                    <div className="score-value">{score.problemSolving}%</div>
+                  </div>
+                </div>
+              </div>
             )}
-            
+
+            {/* Detailed Feedback */}
+            {detailedFeedback && (
+              <div className="feedback-section">
+                <h5>💡 Detailed Feedback</h5>
+                {detailedFeedback.strengths.length > 0 && (
+                  <div className="feedback-group">
+                    <h6>✅ Strengths:</h6>
+                    <ul>
+                      {detailedFeedback.strengths.map((strength, index) => (
+                        <li key={index}>{strength}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {detailedFeedback.improvements.length > 0 && (
+                  <div className="feedback-group">
+                    <h6>🔧 Areas for Improvement:</h6>
+                    <ul>
+                      {detailedFeedback.improvements.map((improvement, index) => (
+                        <li key={index}>{improvement}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {detailedFeedback.complexity && (
+                  <div className="feedback-group">
+                    <h6>⚡ Complexity Analysis:</h6>
+                    <p>Time: {detailedFeedback.complexity.timeComplexity || 'O(n)'}</p>
+                    <p>Space: {detailedFeedback.complexity.spaceComplexity || 'O(1)'}</p>
+                  </div>
+                )}
+                {detailedFeedback.comment && (
+                  <div className="feedback-group">
+                    <h6>💬 Interviewer Comment:</h6>
+                    <p>{detailedFeedback.comment}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Test Results */}
             {testResults.length > 0 && (
               <div className="test-results">
-                <h5>Test Results</h5>
-                {testResults.map(test => (
+                <h5>🧪 Test Results</h5>
+                {testResults.map((test) => (
                   <div key={test.id} className={`test-case ${test.passed ? 'passed' : 'failed'}`}>
                     <div className="test-status">
-                      {test.passed ? <Check size={16} /> : '✗'}
+                      {test.passed ? <Check size={16} /> : <AlertCircle size={16} />}
                     </div>
                     <div className="test-details">
                       <div className="test-input">Input: {test.input}</div>
                       <div className="test-expected">Expected: {test.expected}</div>
                       <div className="test-actual">Actual: {test.actual}</div>
                       <div className="test-performance">
-                        Time: {test.executionTime} | Memory: {test.memoryUsed}
+                        <Clock size={12} /> {test.executionTime} | Memory: {test.memoryUsed}
                       </div>
                     </div>
                   </div>
@@ -372,7 +478,7 @@ ${evaluation.interviewerComment || ''}`)
         </div>
       </div>
     </div>
-  )
+  );
 }
 
-export default CodeEditor
+export default CodeEditor;

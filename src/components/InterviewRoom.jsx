@@ -49,7 +49,7 @@ function InterviewRoom({ onEndInterview }) {
   const [screenAnalysis, setScreenAnalysis] = useState(null);
   const [suspiciousActivity, setSuspiciousActivity] = useState([]);
   const [newMessage, setNewMessage] = useState("");
-  
+
   // Voice recording
   const [isRecording, setIsRecording] = useState(false);
   const [recognition, setRecognition] = useState(null);
@@ -94,30 +94,31 @@ function InterviewRoom({ onEndInterview }) {
   };
 
   const initializeSpeechRecognition = () => {
-    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if ("webkitSpeechRecognition" in window || "SpeechRecognition" in window) {
+      const SpeechRecognition =
+        window.SpeechRecognition || window.webkitSpeechRecognition;
       const recognitionInstance = new SpeechRecognition();
-      
+
       recognitionInstance.continuous = true;
       recognitionInstance.interimResults = true;
-      recognitionInstance.lang = 'en-US';
+      recognitionInstance.lang = "en-US";
 
       recognitionInstance.onresult = (event) => {
-        let finalTranscript = '';
+        let finalTranscript = "";
         for (let i = event.resultIndex; i < event.results.length; i++) {
           if (event.results[i].isFinal) {
             finalTranscript += event.results[i][0].transcript;
           }
         }
-        
+
         if (finalTranscript) {
           setTranscript(finalTranscript);
-          console.log('🎤 Speech recognized:', finalTranscript);
+          console.log("🎤 Speech recognized:", finalTranscript);
         }
       };
 
       recognitionInstance.onerror = (event) => {
-        console.error('Speech recognition error:', event.error);
+        console.error("Speech recognition error:", event.error);
         setIsRecording(false);
       };
 
@@ -131,7 +132,7 @@ function InterviewRoom({ onEndInterview }) {
 
       setRecognition(recognitionInstance);
     } else {
-      console.warn('Speech recognition not supported');
+      console.warn("Speech recognition not supported");
     }
   };
 
@@ -268,7 +269,7 @@ function InterviewRoom({ onEndInterview }) {
 
   const toggleVoiceRecording = () => {
     if (!recognition) {
-      alert('Speech recognition not supported in this browser');
+      alert("Speech recognition not supported in this browser");
       return;
     }
 
@@ -410,7 +411,52 @@ function InterviewRoom({ onEndInterview }) {
                 : "Starting AI Interview"}
             </h2>
             <p>Our AI interviewer is getting ready to meet you!</p>
-            {loading && <div className="loading-spinner"></div>}
+            {loading && (
+              <>
+                <div className="loading-spinner"></div>
+                <div className="loading-steps">
+                  <div className="step">
+                    <span className="step-icon">🔌</span>
+                    <span>Connecting to AI servers...</span>
+                  </div>
+                  <div className="step">
+                    <span className="step-icon">🤖</span>
+                    <span>Generating personalized questions...</span>
+                  </div>
+                  <div className="step">
+                    <span className="step-icon">📝</span>
+                    <span>Setting up your interview room...</span>
+                  </div>
+                </div>
+                <div className="loading-tip">
+                  <p>
+                    💡 This usually takes 10-30 seconds. If it takes longer, try
+                    refreshing the page.
+                  </p>
+                </div>
+              </>
+            )}
+            {error && (
+              <div className="error-message">
+                <p>❌ {error}</p>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => {
+                    clearError();
+                    // Retry starting the interview
+                    if (currentInterview) {
+                      startInterview({
+                        type: "dsa",
+                        difficulty: "medium",
+                        topic: "arrays",
+                      });
+                    }
+                  }}
+                >
+                  🔄 Retry Interview
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
